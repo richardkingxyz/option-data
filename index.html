@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>crypto option pricing data</title>
+<title>crypto option data</title>
 <meta name="description" content="Live chance of triggering, IV and delta for SOL and BTC option strikes. Reference market data, read-only.">
 <meta name="theme-color" content="#000000">
 <meta property="og:type" content="website">
-<meta property="og:title" content="Crypto option pricing data">
+<meta property="og:title" content="Crypto option data">
 <meta property="og:description" content="Live chance of triggering, IV and delta for SOL and BTC option strikes.">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:creator" content="@richardkingxyz">
@@ -285,7 +285,8 @@
   }
   #tip b { display: block; margin-bottom: 2px; letter-spacing: .1em; text-shadow: var(--glow); }
 
-  footer { color: var(--dim); font-size: 11px; }
+  footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 16px; color: var(--dim); font-size: 11px; }
+  #version { margin-left: auto; white-space: nowrap; }
 
   /* Narrow screens: one column, the whole page scrolls, guide starts folded above the table. */
   @media (max-width: 900px) {
@@ -306,7 +307,7 @@
 <body>
 
 <header class="head">
-  <h1>[ CRYPTO OPTION PRICING DATA ]</h1>
+  <h1>[ CRYPTO OPTION DATA ]</h1>
   <span class="tagline">odds, IV and delta for SOL and BTC option strikes</span>
   <nav class="links" aria-label="Links">
     <a href="https://x.com/richardkingxyz" target="_blank" rel="noopener" aria-label="@richardkingxyz on X">x: @richardkingxyz</a>
@@ -364,9 +365,9 @@
     </dl>
 
     <h2>CHANCE OF TRIGGERING</h2>
-    <p>The market's implied odds that <span data-asset-name>SOL</span> is past your price on expiry day,
-       worked out from the option's delta and IV. The further a price is from spot, the lower the odds,
-       and the smaller the premium.</p>
+    <p>The option's delta shown as a percentage: a rough guide to the odds that
+       <span data-asset-name>SOL</span> is past your price on expiry day. The further a price is
+       from spot, the lower the odds, and the smaller the premium.</p>
     <p class="warn">Not a limit order: only the price on expiry day counts. Touching it earlier does nothing.</p>
 
     <h2>EITHER WAY</h2>
@@ -374,13 +375,20 @@
   </details>
 </div>
 
-<footer>source: deribit.com public api // reference market data. premiums on any platform will differ. not a recommendation.</footer>
+<footer>
+  <span>source: deribit.com // reference market data. premiums on any platform will differ. not a recommendation.</span>
+  <span id="version"></span>
+</footer>
 
 <div id="tip" role="tooltip"></div>
 
 <script>
 (() => {
   'use strict';
+
+  // Bump both when the page changes; they show in the bottom-right corner.
+  const VERSION = '1.3';
+  const UPDATED = '2026-09-30';
 
   const API = 'https://www.deribit.com/api/v2/public/';
   const CONCURRENCY = 10;
@@ -416,11 +424,11 @@
     { key: 'dist', label: 'FROM SPOT', name: 'From spot',
       tip: a => `How far this price is from where ${a} trades right now. Further away means less likely to trigger.` },
     { key: 'chance', label: 'CHANCE OF TRIGGERING', name: 'Chance of triggering', cls: 'ch',
-      tip: a => `Roughly how likely your sale or purchase goes through: the market's implied odds that ${a} is past this price on expiry day, worked out from the option's delta and IV. A market estimate, not a prediction.` },
+      tip: a => `Roughly how likely your sale or purchase goes through. This is the option's delta shown as a percentage, which traders use as a rough guide to the odds that ${a} is past this price at expiry. A market estimate, not a prediction.` },
     { key: 'iv', label: 'IV', name: 'IV',
       tip: () => 'How much movement the market is pricing in. Higher means bigger expected swings, and bigger premiums.' },
     { key: 'delta', label: 'DELTA', name: 'Delta',
-      tip: a => `How much the option's price moves per $1 move in ${a}. Traders often use it as a rough stand-in for the odds; the Chance column is the proper figure. Negative for Buy Lower, because those gain when the price falls.` },
+      tip: a => `How much the option's price moves per $1 move in ${a}. Also a rough guide to the odds of triggering, which is what the Chance column shows. Negative for Buy Lower, because those gain when the price falls.` },
   ];
   const TIPS = Object.fromEntries(COLS.map(c => [c.key, c]));
   const NA = '--';
@@ -658,7 +666,7 @@
         let n = cut[type];
         while (n > 0 && !tickers[type][n - 1]) n--;   // never end a side on a strike that failed to load
         for (let i = 0; i < n; i++) {
-          rows.push({ strike: lists[type][i].strike, side: type, q: toQuote(tickers[type][i], type, days / 365) });
+          rows.push({ strike: lists[type][i].strike, side: type, q: toQuote(tickers[type][i]) });
         }
       }
       if (!rows.length) {
@@ -707,50 +715,17 @@
     return Math.abs(delta) >= RULES.minDelta && yearly >= cfg.minYield[inst.option_type];
   }
 
-  // Pull the three things we show out of one ticker. Missing pieces become null.
-  function toQuote(t, type, years) {
+  // Pull the three things we show out of one ticker, as Deribit reports them. Nothing is
+  // recalculated: IV is Deribit's mark IV, delta is Deribit's delta, and the chance column
+  // is that same delta shown as a whole percentage. Missing pieces become null.
+  function toQuote(t) {
     if (!t) return null;
     const delta = t.greeks && isNum(t.greeks.delta) ? t.greeks.delta : null;
-    const iv = isNum(t.mark_iv) && t.mark_iv > 0 ? t.mark_iv : null;
-    return { iv, delta, chance: chanceOf(type, delta, iv, years) };
-  }
-
-  // Chance (in whole percent) that the option finishes in the money. Delta is only a
-  // rough stand-in for this: in Black-Scholes terms delta is N(d1) while the real odds
-  // are N(d2), with d2 = d1 - iv * sqrt(T). Deribit gives us delta and IV, so recover
-  // d1 from delta, step down to d2, and read the odds off the normal curve. Calls come
-  // out lower than their delta, puts higher, and the gap grows with time to expiry.
-  function chanceOf(type, delta, iv, years) {
-    if (!isNum(delta) || !isNum(iv) || !(years > 0)) return null;
-    // a put's delta is the call's delta minus one at the same strike
-    const callDelta = Math.min(1 - 1e-6, Math.max(1e-6, type === 'call' ? delta : 1 + delta));
-    const d2 = normInv(callDelta) - (iv / 100) * Math.sqrt(years);
-    return Math.round((type === 'call' ? normCdf(d2) : normCdf(-d2)) * 100);
-  }
-
-  // Standard normal CDF (Abramowitz & Stegun 26.2.17, error under 1e-7).
-  function normCdf(x) {
-    const t = 1 / (1 + 0.2316419 * Math.abs(x));
-    const poly = t * (0.319381530 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
-    const tail = 0.3989422804014327 * Math.exp(-x * x / 2) * poly;
-    return x >= 0 ? 1 - tail : tail;
-  }
-
-  // Inverse of the standard normal CDF (Acklam's rational approximation, relative error under 1.2e-9).
-  function normInv(p) {
-    const a = [-3.969683028665376e1, 2.209460984245205e2, -2.759285104469687e2, 1.383577518672690e2, -3.066479806614716e1, 2.506628277459239];
-    const b = [-5.447609879822406e1, 1.615858368580409e2, -1.556989798598866e2, 6.680131188771972e1, -1.328068155288572e1];
-    const c = [-7.784894002430293e-3, -3.223964580411365e-1, -2.400758277161838, -2.549732539343734, 4.374664141464968, 2.938163982698783];
-    const d = [7.784695709041462e-3, 3.224671290700398e-1, 2.445134137142996, 3.754408661907416];
-    const low = 0.02425;
-    if (p < low || p > 1 - low) {
-      const q = Math.sqrt(-2 * Math.log(p < low ? p : 1 - p));
-      const x = (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1);
-      return p < low ? x : -x;
-    }
-    const q = p - 0.5, r = q * q;
-    return (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * q /
-      (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1);
+    return {
+      iv: isNum(t.mark_iv) && t.mark_iv > 0 ? t.mark_iv : null,
+      delta,
+      chance: delta === null ? null : Math.round(Math.abs(delta) * 100),
+    };
   }
 
   // ---------- rendering ----------
@@ -921,6 +896,7 @@
   // ---------- boot ----------
 
   buildHead();
+  $('version').textContent = `v${VERSION} // updated ${UPDATED}`;
   // On a phone the guide starts folded so the numbers are the first thing on screen.
   if (window.matchMedia('(max-width: 900px)').matches) el.guide.open = false;
   const savedAsset = store.get('oc.asset');
