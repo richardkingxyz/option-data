@@ -1,0 +1,898 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>crypto option pricing data</title>
+<meta name="description" content="Live chance of triggering, IV and delta for SOL and BTC option strikes. Reference market data, read-only.">
+<meta name="theme-color" content="#000000">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Crypto option pricing data">
+<meta property="og:description" content="Live chance of triggering, IV and delta for SOL and BTC option strikes.">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:creator" content="@richardkingxyz">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23000'/%3E%3Cpath d='M3 4l5 4-5 4' fill='none' stroke='%2333FF66' stroke-width='2'/%3E%3Crect x='9' y='11' width='4' height='2' fill='%2333FF66'/%3E%3C/svg%3E">
+<!-- Optional webfont. If it can't load, the page falls back to the system monospace. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --bg: #000;
+    --green: #33FF66;
+    --dim: #1A7F3C;
+    /* Buy Lower numerals. Pure --dim is only ~4:1 on black, too faint for a dense table. */
+    --mid: #27B550;
+    --amber: #FFB000;
+    --hair: 1px solid var(--dim);
+    --row-hair: 1px solid rgba(26, 127, 60, .4);
+    --glow: 0 0 6px rgba(51, 255, 102, .35);
+    --glow-soft: 0 0 3px rgba(51, 255, 102, .22);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; border-radius: 0; }
+
+  html, body { height: 100%; }
+
+  body {
+    margin: 0;
+    padding: 14px 16px 10px;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    background: var(--bg);
+    color: var(--green);
+    font: 13px/1.45 "IBM Plex Mono", "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  /* CRT scanlines: faint light lines rather than dark ones, so they texture the
+     black background without cutting through the numerals. */
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+      to bottom,
+      rgba(51, 255, 102, .03) 0, rgba(51, 255, 102, .03) 1px,
+      transparent 1px, transparent 3px
+    );
+  }
+
+  h1 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: .08em;
+    text-shadow: var(--glow);
+    white-space: nowrap;
+  }
+  .tagline { color: var(--dim); font-size: 12px; }
+  .head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; }
+
+  /* top-right corner links, drawn as bracketed terminal labels */
+  .links { margin-left: auto; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; }
+  .links a { color: var(--green); text-decoration: none; white-space: nowrap; }
+  .links a::before { content: "[ "; color: var(--dim); }
+  .links a::after { content: " ]"; color: var(--dim); }
+  .links a:hover { text-shadow: var(--glow); text-decoration: underline; }
+  .links a:focus-visible { outline: 1px solid var(--green); outline-offset: 2px; }
+
+  /* ---- controls ---- */
+  .bar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 22px; }
+  .field { display: flex; flex-direction: column; gap: 3px; }
+  .lbl { color: var(--dim); font-size: 11px; letter-spacing: .12em; }
+
+  button, select {
+    font: inherit;
+    color: var(--green);
+    background: var(--bg);
+    border: var(--hair);
+    height: 32px;
+    padding: 0 12px;
+    cursor: pointer;
+  }
+  button:hover, select:hover { border-color: var(--green); background: rgba(51, 255, 102, .08); }
+  button:focus-visible, select:focus-visible, th:focus-visible, summary:focus-visible {
+    outline: 1px solid var(--green);
+    outline-offset: 2px;
+  }
+
+  .seg { display: flex; }
+  .seg button + button { border-left: 0; }
+  .seg button[aria-pressed="true"] {
+    background: var(--green);
+    border-color: var(--green);
+    color: var(--bg);
+    font-weight: 600;
+  }
+
+  select {
+    -webkit-appearance: none;
+    appearance: none;
+    min-width: 19ch;
+    padding-right: 30px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0h10L5 6z' fill='%2333FF66'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+  }
+  select option { background: #000; color: var(--green); }
+
+  #index {
+    height: 32px;
+    display: flex;
+    align-items: center;
+    font-size: 18px;
+    font-weight: 600;
+    text-shadow: var(--glow);
+    min-width: 11ch;
+  }
+
+  /* ---- status / errors ---- */
+  .log { display: flex; flex-direction: column; gap: 2px; min-height: 1.45em; }
+  #status { color: var(--green); }
+  #note { color: var(--dim); font-size: 12px; }
+  #err { color: var(--amber); }
+  #err:empty, #note:empty { display: none; }
+  #err div { overflow-wrap: anywhere; }
+
+  .cursor { display: inline-block; margin-left: 2px; animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { .cursor { animation: none; } }
+
+  /* ---- layout: price ladder on the left, plain-English guide on the right ---- */
+  .main {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 720px) minmax(240px, 380px);
+    grid-template-rows: minmax(0, 1fr);
+    gap: 16px;
+    align-items: start;
+  }
+
+  .chain {
+    position: relative;
+    max-height: 100%;
+    overflow: auto;
+    border: var(--hair);
+  }
+  .chain[hidden] { display: none; }
+  .chain.stale tbody { opacity: .45; }
+
+  table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-variant-numeric: tabular-nums;
+  }
+
+  th, td {
+    padding: 4px 12px;
+    text-align: right;
+    white-space: nowrap;
+    border-bottom: var(--row-hair);
+  }
+
+  thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--bg);
+    color: var(--mid);
+    font-weight: 500;
+    font-size: 11px;
+    letter-spacing: .08em;
+    vertical-align: bottom;
+    border-bottom: var(--hair);
+  }
+  th[data-tip] { cursor: help; }
+  th[data-tip] span { border-bottom: 1px dotted var(--dim); }
+  th[data-tip]:hover, th[data-tip]:focus-visible { color: var(--green); }
+
+  /* the price you pick: first column, set off by a hairline */
+  th.k, td.k { border-right: var(--hair); }
+  td.k { font-weight: 600; }
+
+  /* Sell Higher rows are bright, Buy Lower rows are dimmer */
+  tr.c td, tr.c th { color: var(--green); }
+  tr.c td { text-shadow: var(--glow-soft); }
+  tr.p td, tr.p th { color: var(--mid); }
+  td.na { color: var(--dim) !important; text-shadow: none !important; }
+
+  tbody tr.c:not(.sec):hover td, tbody tr.p:not(.sec):hover td { background: rgba(51, 255, 102, .08); }
+
+  /* section label rows: which side of the market these prices belong to */
+  tr.sec th {
+    text-align: left;
+    padding-top: 8px;
+    font-weight: 600;
+    letter-spacing: .14em;
+    white-space: normal;
+    border-bottom: var(--hair);
+  }
+  tr.sec th small { font-size: 11px; font-weight: 400; letter-spacing: .04em; color: var(--dim); margin-left: 10px; }
+
+  /* chance of triggering: a bar you can read at a glance, then the number */
+  td.ch { width: 34%; }
+  td.ch div { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+  .meter { flex: 1; min-width: 40px; max-width: 160px; height: 9px; border: 1px solid var(--dim); }
+  .meter i { display: block; height: 100%; background: currentColor; }
+  td.ch b { font-weight: 600; min-width: 4ch; }
+
+  /* where the price is right now */
+  tr.spot td { padding: 5px 0; border-bottom: 0; }
+  tr.spot div {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--amber);
+    font-weight: 600;
+    letter-spacing: .06em;
+    text-shadow: 0 0 6px rgba(255, 176, 0, .3);
+  }
+  /* amber rule either side of the label */
+  tr.spot div::before, tr.spot div::after {
+    content: "";
+    flex: 1;
+    border-top: 1px solid var(--amber);
+  }
+
+  /* ---- guide ---- */
+  .guide {
+    max-height: 100%;
+    overflow: auto;
+    border: var(--hair);
+    padding: 8px 12px 10px;
+    font-size: 12px;
+    line-height: 1.55;
+  }
+  .guide summary {
+    cursor: pointer;
+    list-style: none;
+    font-weight: 600;
+    letter-spacing: .12em;
+    text-shadow: var(--glow);
+  }
+  .guide summary::-webkit-details-marker { display: none; }
+  .guide summary::before { content: "[+] "; color: var(--dim); }
+  .guide[open] summary::before { content: "[-] "; }
+  .guide h2 { margin: 12px 0 2px; font-size: 12px; font-weight: 600; letter-spacing: .1em; }
+  .guide h2 small { font-size: 11px; font-weight: 400; letter-spacing: .04em; color: var(--dim); margin-left: 6px; }
+  .guide p { margin: 0 0 4px; color: var(--mid); }
+  .guide dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 0 10px; color: var(--mid); }
+  .guide dt { color: var(--green); }
+  .guide dd { margin: 0; }
+  .guide .warn { color: var(--amber); }
+
+  /* ---- tooltip ---- */
+  #tip {
+    position: fixed;
+    z-index: 50;
+    display: none;
+    max-width: min(320px, calc(100vw - 16px));
+    padding: 8px 10px;
+    background: var(--bg);
+    border: 1px solid var(--green);
+    box-shadow: 0 0 14px rgba(51, 255, 102, .18);
+    color: var(--green);
+    font-size: 12px;
+    line-height: 1.5;
+    pointer-events: none;
+  }
+  #tip b { display: block; margin-bottom: 2px; letter-spacing: .1em; text-shadow: var(--glow); }
+
+  footer { color: var(--dim); font-size: 11px; }
+
+  /* Narrow screens: one column, the whole page scrolls, guide starts folded above the table. */
+  @media (max-width: 900px) {
+    body { height: auto; min-height: 100dvh; padding: 10px 10px 8px; font-size: 12px; }
+    .tagline { display: none; }
+    .main { display: flex; flex-direction: column; align-items: stretch; flex: none; gap: 10px; }
+    .guide { order: -1; max-height: none; }
+    .chain { max-height: none; }
+    th, td { padding: 4px 6px; }
+    thead th { white-space: normal; }   /* lets CHANCE OF TRIGGERING wrap so all five columns fit */
+    td.ch { width: auto; }
+    td.ch div { gap: 6px; }
+    .meter { min-width: 36px; max-width: 70px; }
+    tr.sec th small { display: block; margin: 0; }
+  }
+</style>
+</head>
+<body>
+
+<header class="head">
+  <h1>[ CRYPTO OPTION PRICING DATA ]</h1>
+  <span class="tagline">odds, IV and delta for SOL and BTC option strikes</span>
+  <nav class="links" aria-label="Links">
+    <a href="https://x.com/richardkingxyz" target="_blank" rel="noopener" aria-label="@richardkingxyz on X">x: @richardkingxyz</a>
+  </nav>
+</header>
+
+<div class="bar">
+  <div class="field">
+    <span class="lbl" id="asset-lbl">ASSET</span>
+    <div class="seg" role="group" aria-labelledby="asset-lbl" id="assets">
+      <button type="button" data-asset="SOL" aria-pressed="false">SOL</button>
+      <button type="button" data-asset="BTC" aria-pressed="false">BTC</button>
+    </div>
+  </div>
+  <label class="field">
+    <span class="lbl">EXPIRATION DATE</span>
+    <select id="expiry" disabled><option>--</option></select>
+  </label>
+  <div class="field">
+    <span class="lbl" id="index-lbl">SPOT</span>
+    <output id="index" aria-labelledby="index-lbl">--</output>
+  </div>
+  <button type="button" id="refresh">[ REFRESH ]</button>
+</div>
+
+<div class="log">
+  <div id="status" role="status" aria-live="polite"></div>
+  <div id="note"></div>
+  <div id="err" role="alert"></div>
+</div>
+
+<div class="main">
+  <div class="chain" id="chain" hidden>
+    <table>
+      <thead id="thead"></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+
+  <details class="guide" id="guide" open>
+    <summary>HOW TO READ THIS</summary>
+
+    <h2>SELL HIGHER <small>covered call</small></h2>
+    <p>You hold <span data-asset-name>SOL</span> and pick a price above spot.</p>
+    <dl>
+      <dt>triggers</dt><dd>your <span data-asset-name>SOL</span> is sold at that price.</dd>
+      <dt>doesn't</dt><dd>you keep your <span data-asset-name>SOL</span>.</dd>
+    </dl>
+
+    <h2>BUY LOWER <small>cash-secured put</small></h2>
+    <p>You hold USDC and pick a price below spot.</p>
+    <dl>
+      <dt>triggers</dt><dd>you buy <span data-asset-name>SOL</span> at that price.</dd>
+      <dt>doesn't</dt><dd>you keep your USDC.</dd>
+    </dl>
+
+    <h2>CHANCE OF TRIGGERING</h2>
+    <p>The market's rough odds that <span data-asset-name>SOL</span> is past your price on expiry day.
+       The further a price is from spot, the lower the odds, and the smaller the premium.</p>
+    <p class="warn">Not a limit order: only the price on expiry day counts. Touching it earlier does nothing.</p>
+
+    <h2>EITHER WAY</h2>
+    <p>You keep the premium you were paid upfront.</p>
+  </details>
+</div>
+
+<footer>source: deribit.com public api // reference market data. premiums on any platform will differ. not a recommendation.</footer>
+
+<div id="tip" role="tooltip"></div>
+
+<script>
+(() => {
+  'use strict';
+
+  const API = 'https://www.deribit.com/api/v2/public/';
+  const CONCURRENCY = 10;
+  const INSTRUMENT_TTL_MS = 5 * 60 * 1000;
+  const INDEX_POLL_MS = 10 * 1000;
+  const MAX_RETRIES = 5;   // when Deribit says "too many requests"
+  const NET_RETRIES = 2;   // when the request never got through
+
+  // Which expiration dates and strikes to show. Nothing here is a fixed price range:
+  // the ladder is rebuilt from live data, so it moves with spot and reaches further
+  // out on longer dates (more time = more premium = strikes further away still pay).
+  const RULES = {
+    minDays: 1,          // skip dates that expire within a day
+    maxDays: 120,        // and dates more than about four months out
+    minGap: 0.01,        // nearest strike shown is at least 1% away from spot
+    minDelta: 0.075,     // furthest strike still has a roughly 1-in-13 chance of triggering
+    maxPerSide: 45,      // safety cap on how far out the walk can go
+    rebuildDrift: 0.005, // rebuild the ladder once spot has moved 0.5% since it was built
+  };
+  // `minYield` is the other half of the far cut-off: the premium, as a yearly rate on
+  // what gets locked up, has to clear this floor (16.5% = 0.165). `inCoin` marks assets
+  // whose options Deribit prices in the coin rather than in dollars.
+  const ASSETS = {
+    SOL: { currency: 'USDC', prefix: 'SOL_USDC-', index: 'sol_usdc', inCoin: false, minYield: { call: 0.165, put: 0.149 } },
+    BTC: { currency: 'BTC', prefix: 'BTC-', index: 'btc_usd', inCoin: true, minYield: { call: 0.165, put: 0.135 } },
+  };
+  const DEFAULT_ASSET = 'SOL';
+  const MIN_DEFAULT_DAYS = 7;
+
+  const COLS = [
+    { key: 'strike', label: 'PRICE', name: 'Price', cls: 'k',
+      tip: a => `The price you pick (the strike). Above spot, it's the price you'd sell ${a} at. Below spot, it's the price you'd buy ${a} at.` },
+    { key: 'dist', label: 'FROM SPOT', name: 'From spot',
+      tip: a => `How far this price is from where ${a} trades right now. Further away means less likely to trigger.` },
+    { key: 'chance', label: 'CHANCE OF TRIGGERING', name: 'Chance of triggering', cls: 'ch',
+      tip: a => `Roughly how likely your sale or purchase goes through: the market's odds that ${a} is past this price on expiry day. Derived from delta. A market estimate, not a prediction.` },
+    { key: 'iv', label: 'IV', name: 'IV',
+      tip: () => 'How much movement the market is pricing in. Higher means bigger expected swings, and bigger premiums.' },
+    { key: 'delta', label: 'DELTA', name: 'Delta',
+      tip: a => `How much the option's price moves per $1 move in ${a}. Its size is also the rough chance of triggering (0.30 is about 30%). Negative for Buy Lower, because those gain when the price falls.` },
+  ];
+  const TIPS = Object.fromEntries(COLS.map(c => [c.key, c]));
+  const NA = '--';
+
+  const $ = id => document.getElementById(id);
+  const el = {
+    assets: $('assets'), expiry: $('expiry'), index: $('index'), refresh: $('refresh'),
+    status: $('status'), note: $('note'), err: $('err'),
+    chain: $('chain'), thead: $('thead'), tbody: $('tbody'), tip: $('tip'), guide: $('guide'),
+  };
+
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch { /* private mode etc. */ } },
+  };
+
+  const state = {
+    asset: DEFAULT_ASSET,
+    expiry: null,        // expiration timestamp (ms)
+    index: null,         // latest spot price for state.asset
+    instruments: {},     // asset -> { at, list }
+    chain: null,         // { asset, expiry, rows }
+  };
+
+  // ---------- formatting ----------
+
+  const nf0 = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
+  const nf2 = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const isNum = v => typeof v === 'number' && Number.isFinite(v);
+
+  const fmtStrike = v => Number.isInteger(v) ? nf0.format(v) : String(v);
+  const fmtIndex = v => '$' + (v >= 1 ? nf2.format(v) : v.toFixed(4));
+  const fmtDist = v => (v >= 0 ? '+' : '') + v.toFixed(1) + '%';
+
+  const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+  function fmtDate(ts) {
+    const d = new Date(ts);
+    return `${String(d.getUTCDate()).padStart(2, '0')} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+  }
+  function fmtTimeLeft(ts) {
+    const hours = (ts - Date.now()) / 36e5;
+    if (hours < 1) return '<1h';
+    if (hours < 24) return Math.round(hours) + 'h';
+    return Math.round(hours / 24) + 'd';
+  }
+  // 0.085 -> "8.5%"
+  const fmtShare = v => String(+(v * 100).toFixed(1)) + '%';
+
+  // ---------- status + errors ----------
+
+  function setStatus(text, busy) {
+    el.status.textContent = '> ' + text;
+    if (busy) {
+      const c = document.createElement('span');
+      c.className = 'cursor';
+      c.textContent = '█';
+      c.setAttribute('aria-hidden', 'true');
+      el.status.append(c);
+    }
+  }
+  function showError(msg, tag = 'ERR') {
+    const d = document.createElement('div');
+    d.textContent = `[${tag}] ${msg}`;
+    el.err.append(d);
+  }
+  const clearErrors = () => el.err.replaceChildren();
+
+  // ---------- API ----------
+
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const aborted = () => new DOMException('Aborted', 'AbortError');
+
+  // Deribit's public limit is roughly a burst of 100 requests, then ~20/s.
+  // Pace ourselves just under that so a load never trips HTTP 429.
+  const bucket = { tokens: 80, max: 80, perSec: 18, at: performance.now() };
+  async function takeToken(signal) {
+    for (;;) {
+      const now = performance.now();
+      bucket.tokens = Math.min(bucket.max, bucket.tokens + (now - bucket.at) / 1000 * bucket.perSec);
+      bucket.at = now;
+      if (bucket.tokens >= 1) { bucket.tokens -= 1; return; }
+      await sleep((1 - bucket.tokens) / bucket.perSec * 1000);
+      if (signal && signal.aborted) throw aborted();
+    }
+  }
+
+  async function api(method, params, signal) {
+    const url = API + method + '?' + new URLSearchParams(params);
+    for (let attempt = 0; ; attempt++) {
+      let res, body = null, netErr = null;
+      await takeToken(signal);
+      try {
+        res = await fetch(url, { signal });
+        try { body = await res.json(); } catch { /* non-JSON body */ }
+      } catch (e) {
+        if (e.name === 'AbortError') throw e;
+        netErr = e;
+      }
+      if (signal && signal.aborted) throw aborted();
+
+      const rateLimited = res && (res.status === 429 || (body && body.error && body.error.code === 10028));
+      // The server's allowance is spent (e.g. after a page reload): make every worker wait for a refill.
+      if (rateLimited) bucket.tokens = Math.min(bucket.tokens, -4);
+      if (attempt < (rateLimited ? MAX_RETRIES : netErr ? NET_RETRIES : 0)) {
+        await sleep(300 * 2 ** attempt);
+        continue;
+      }
+      if (netErr) throw new Error(`could not reach Deribit (${method}): network down, or the browser blocked the request`);
+      if (rateLimited) throw new Error('Deribit is rate-limiting this connection. Wait a few seconds and hit refresh.');
+      if (body && body.error) throw new Error(`Deribit: ${body.error.message} (code ${body.error.code})`);
+      if (!res.ok || !body) throw new Error(`Deribit returned HTTP ${res.status} for ${method}`);
+      return body.result;
+    }
+  }
+
+  async function getInstruments(asset, signal, force) {
+    const cached = state.instruments[asset];
+    if (cached && !force && Date.now() - cached.at < INSTRUMENT_TTL_MS) return cached.list;
+    const cfg = ASSETS[asset];
+    const all = await api('get_instruments', { currency: cfg.currency, kind: 'option', expired: 'false' }, signal);
+    const list = all.filter(i => i.instrument_name.startsWith(cfg.prefix));
+    state.instruments[asset] = { at: Date.now(), list };
+    return list;
+  }
+
+  // Run `worker` over `items`, at most `limit` at a time.
+  async function pool(items, limit, worker) {
+    let next = 0;
+    const run = async () => {
+      while (next < items.length) await worker(items[next++]);
+    };
+    await Promise.all(Array.from({ length: Math.min(limit, items.length) }, run));
+  }
+
+  // ---------- loading ----------
+
+  let inflight = null;
+  let lastRebuild = 0;
+
+  async function load({ force = false } = {}) {
+    if (inflight) inflight.abort();
+    const ctl = inflight = new AbortController();
+    const { signal } = ctl;
+    const asset = state.asset;
+    const cfg = ASSETS[asset];
+
+    clearErrors();
+    if (state.chain && state.chain.asset !== asset) {
+      state.chain = null;
+      el.chain.hidden = true;
+    }
+    el.chain.classList.add('stale');
+    el.note.textContent =
+      `strikes start ${fmtShare(RULES.minGap)} from spot and run out to where the premium gets too thin. ` +
+      `longer dates reach further.`;
+
+    try {
+      setStatus(`fetching ${asset} expiration dates...`, true);
+      const [list, idx] = await Promise.all([
+        getInstruments(asset, signal, force),
+        api('get_index_price', { index_name: cfg.index }, signal),
+      ]);
+      const spot = idx.index_price;
+      if (!isNum(spot)) throw new Error(`Deribit did not return a ${asset} spot price`);
+      setIndex(spot, false);
+
+      const now = Date.now();
+      const live = list.filter(i => {
+        const daysLeft = (i.expiration_timestamp - now) / 864e5;
+        return daysLeft >= RULES.minDays && daysLeft <= RULES.maxDays;
+      });
+      const expiries = [...new Set(live.map(i => i.expiration_timestamp))].sort((a, b) => a - b);
+      if (!expiries.length) throw new Error(`no open ${asset} expiration dates found`);
+      // Nothing remembered (or it has expired): start on the first date at least a week out.
+      if (!expiries.includes(state.expiry)) {
+        state.expiry = expiries.find(ts => ts - now >= MIN_DEFAULT_DAYS * 864e5) || expiries[0];
+      }
+      fillExpiries(expiries);
+
+      // Candidate strikes for this date: calls above spot, puts below, nearest first.
+      const expiry = state.expiry;
+      const days = (expiry - now) / 864e5;
+      const onDate = live.filter(i => i.expiration_timestamp === expiry);
+      const candidates = (type, inRange, dir) => onDate
+        .filter(i => i.option_type === type && inRange(i.strike))
+        .sort((x, y) => dir * (x.strike - y.strike))
+        .slice(0, RULES.maxPerSide);
+      const lists = {
+        call: candidates('call', k => k >= spot * (1 + RULES.minGap), 1),
+        put: candidates('put', k => k <= spot * (1 - RULES.minGap), -1),
+      };
+      const tasks = [];
+      for (let i = 0; i < Math.max(lists.call.length, lists.put.length); i++) {
+        for (const type of ['call', 'put']) if (lists[type][i]) tasks.push({ type, i, inst: lists[type][i] });
+      }
+
+      // Keep the old rows (dimmed) on a plain refresh; drop them when the view changed.
+      if (!state.chain || state.chain.expiry !== expiry) {
+        state.chain = null;
+        el.chain.hidden = true;
+      }
+
+      // Walk outward from spot on each side and stop at the first strike that is no
+      // longer worth offering. `cut` is that strike's position in its list.
+      const cut = { call: lists.call.length, put: lists.put.length };
+      const tickers = { call: [], put: [] };
+      let done = 0, failed = 0, firstErr = null;
+      setStatus('fetching odds...', true);
+      await pool(tasks, CONCURRENCY, async ({ type, i, inst }) => {
+        if (i >= cut[type]) return;
+        try {
+          const t = await api('ticker', { instrument_name: inst.instrument_name }, signal);
+          tickers[type][i] = t;
+          if (!worthOffering(t, inst, spot, days, cfg)) cut[type] = Math.min(cut[type], i);
+        } catch (e) {
+          if (e.name === 'AbortError') throw e;
+          failed++;
+          firstErr = firstErr || e;
+        }
+        done++;
+        if (!signal.aborted) setStatus(`fetching odds... ${done}`, true);
+      });
+      if (signal.aborted) return;
+      if (done && failed === done) throw firstErr;
+
+      // Freshest ticker carries the most recent spot price.
+      let newest = null;
+      for (const t of [...tickers.call, ...tickers.put]) {
+        if (t && isNum(t.index_price) && (!newest || t.timestamp > newest.timestamp)) newest = t;
+      }
+      if (newest) setIndex(newest.index_price, false);
+
+      const rows = [];
+      for (const type of ['call', 'put']) {
+        let n = cut[type];
+        while (n > 0 && !tickers[type][n - 1]) n--;   // never end a side on a strike that failed to load
+        for (let i = 0; i < n; i++) {
+          rows.push({ strike: lists[type][i].strike, side: type, q: toQuote(tickers[type][i]) });
+        }
+      }
+      if (!rows.length) {
+        state.chain = null;
+        el.chain.hidden = true;
+        setStatus(`no strikes to show / expires ${fmtDate(expiry)} 08:00 UTC`);
+        showError(`no ${asset} strikes clear the cut-off for this date. Pick another expiration date.`, '--');
+        return;
+      }
+      // highest price at the top, like a price axis
+      rows.sort((x, y) => y.strike - x.strike);
+      state.chain = { asset, expiry, rows, spot };
+
+      render();
+      el.chain.hidden = false;
+      el.chain.classList.remove('stale');
+      centerOnSpot();
+
+      const time = new Date().toLocaleTimeString([], { hour12: false });
+      const range = `$${fmtStrike(rows[rows.length - 1].strike)} to $${fmtStrike(rows[0].strike)}`;
+      setStatus(`${rows.length} prices, ${range} / expires ${fmtDate(expiry)} 08:00 UTC / updated ${time}`);
+      const blank = rows.filter(r => !r.q).length;
+      if (blank) {
+        showError(`${blank} of ${rows.length} quotes failed to load and show as ${NA}. Hit refresh to retry. (${firstErr.message})`);
+      }
+    } catch (e) {
+      if (e.name === 'AbortError' || signal.aborted) return;
+      console.error(e);
+      // any old rows stay dimmed so stale numbers aren't mistaken for live ones
+      setStatus(state.chain ? 'load failed / dimmed rows are from the last successful load' : 'load failed');
+      showError(e.message || String(e));
+    } finally {
+      if (inflight === ctl) inflight = null;
+    }
+  }
+
+  // Is this strike still worth offering? The premium, as a yearly rate on what you'd
+  // lock up (the coin for a call, the cash for a put), has to clear the asset's floor,
+  // and the odds of triggering can't be negligible.
+  function worthOffering(t, inst, spot, days, cfg) {
+    const delta = t.greeks && t.greeks.delta;
+    const premium = t.mark_price * (cfg.inCoin ? t.index_price : 1);   // in dollars
+    if (!isNum(delta) || !isNum(premium)) return false;
+    const locked = inst.option_type === 'call' ? spot : inst.strike;
+    const yearly = premium / locked * 365 / days;
+    return Math.abs(delta) >= RULES.minDelta && yearly >= cfg.minYield[inst.option_type];
+  }
+
+  // Pull the three things we show out of one ticker. Missing pieces become null.
+  function toQuote(t) {
+    if (!t) return null;
+    const delta = t.greeks && isNum(t.greeks.delta) ? t.greeks.delta : null;
+    return {
+      iv: isNum(t.mark_iv) && t.mark_iv > 0 ? t.mark_iv : null,
+      delta,
+      chance: delta === null ? null : Math.round(Math.abs(delta) * 100),
+    };
+  }
+
+  // ---------- rendering ----------
+
+  function buildHead() {
+    el.thead.innerHTML = '<tr>' + COLS.map(c =>
+      `<th scope="col" tabindex="0" data-tip="${c.key}" aria-describedby="tip"${c.cls ? ` class="${c.cls}"` : ''}>` +
+      `<span>${c.label}</span></th>`).join('') + '</tr>';
+  }
+
+  function fillExpiries(expiries) {
+    el.expiry.replaceChildren(...expiries.map(ts => {
+      const o = document.createElement('option');
+      o.value = String(ts);
+      o.textContent = `${fmtDate(ts)} · ${fmtTimeLeft(ts)}`;
+      return o;
+    }));
+    el.expiry.value = String(state.expiry);
+    el.expiry.disabled = false;
+  }
+
+  const cell = (v, fmt, cls = '') =>
+    isNum(v) ? `<td class="${cls}">${fmt(v)}</td>` : `<td class="${cls} na">${NA}</td>`;
+
+  // One ladder row: a call above spot (Sell Higher) or a put below it (Buy Lower).
+  function rowHtml(r, spot) {
+    const q = r.q || {};
+    const chance = isNum(q.chance)
+      ? `<td class="ch"><div><span class="meter" aria-hidden="true"><i style="width:${q.chance}%"></i></span><b>${q.chance}%</b></div></td>`
+      : `<td class="ch na">${NA}</td>`;
+    return `<tr class="${r.side === 'call' ? 'c' : 'p'}">` +
+      `<td class="k">${fmtStrike(r.strike)}</td>` +
+      cell((r.strike / spot - 1) * 100, fmtDist) +
+      chance +
+      cell(q.iv, v => v.toFixed(1) + '%') +
+      cell(q.delta, v => v.toFixed(2).replace(/^-(0\.00)$/, '$1')) +
+      '</tr>';
+  }
+
+  const sectionHtml = (cls, title, sub) =>
+    `<tr class="sec ${cls}"><th colspan="${COLS.length}" scope="rowgroup">${title}<small>${sub}</small></th></tr>`;
+
+  function render() {
+    const c = state.chain;
+    if (!c || !isNum(state.index)) return;
+    const spot = state.index, a = c.asset;
+    const above = c.rows.filter(r => r.side === 'call');
+    const below = c.rows.filter(r => r.side === 'put');
+    let html = '';
+    if (above.length) {
+      html += sectionHtml('c', 'SELL HIGHER', `covered call // sell ${a} above spot`);
+      html += above.map(r => rowHtml(r, spot)).join('');
+    }
+    html += `<tr class="spot"><td colspan="${COLS.length}"><div><span>SPOT ${fmtIndex(spot)} · ${a} is trading here</span></div></td></tr>`;
+    if (below.length) {
+      html += sectionHtml('p', 'BUY LOWER', `cash-secured put // buy ${a} below spot`);
+      html += below.map(r => rowHtml(r, spot)).join('');
+    }
+    el.tbody.innerHTML = html;
+  }
+
+  function centerOnSpot() {
+    const row = el.tbody.querySelector('tr.spot');
+    // the sticky header covers the top of the scroll area, so centre in what's left
+    el.chain.scrollTop = row ? row.offsetTop - (el.chain.clientHeight + el.thead.offsetHeight) / 2 : 0;
+  }
+
+  function setIndex(price, rerender = true) {
+    if (!isNum(price)) return;
+    state.index = price;
+    el.index.textContent = fmtIndex(price);
+    const c = state.chain;
+    if (!rerender || !c || c.asset !== state.asset) return;
+    // The ladder was built around the spot price at load time. Once spot has drifted,
+    // rebuild it (at most once a minute) instead of just moving the marker.
+    const drifted = Math.abs(price / c.spot - 1) > RULES.rebuildDrift;
+    if (drifted && !inflight && Date.now() - lastRebuild > 60000) {
+      lastRebuild = Date.now();
+      load();
+    } else {
+      render();
+    }
+  }
+
+  async function refreshIndex() {
+    const asset = state.asset;
+    try {
+      const r = await api('get_index_price', { index_name: ASSETS[asset].index });
+      if (asset === state.asset) setIndex(r.index_price);
+    } catch { /* header keeps the last known price; loads report their own errors */ }
+  }
+
+  // ---------- tooltips (hover, keyboard focus, tap) ----------
+
+  let tipFor = null;
+
+  function showTip(target) {
+    const def = TIPS[target.dataset.tip];
+    if (!def) return;
+    tipFor = target;
+    const b = document.createElement('b');
+    b.textContent = def.name.toUpperCase();
+    el.tip.replaceChildren(b, def.tip(state.asset));
+    el.tip.style.display = 'block';
+    const r = target.getBoundingClientRect();
+    const w = el.tip.offsetWidth, h = el.tip.offsetHeight;
+    const x = Math.max(8, Math.min(r.left + r.width / 2 - w / 2, window.innerWidth - w - 8));
+    let y = r.bottom + 6;
+    if (y + h > window.innerHeight - 8) y = Math.max(8, r.top - h - 6);
+    el.tip.style.left = x + 'px';
+    el.tip.style.top = y + 'px';
+  }
+  function hideTip() {
+    tipFor = null;
+    el.tip.style.display = 'none';
+  }
+  const tipTarget = e => e.target.closest ? e.target.closest('[data-tip]') : null;
+
+  el.thead.addEventListener('pointerover', e => {
+    const t = tipTarget(e);
+    if (t && e.pointerType === 'mouse' && t !== tipFor) showTip(t);
+  });
+  el.thead.addEventListener('pointerout', e => {
+    const t = tipTarget(e);
+    if (t && e.pointerType === 'mouse' && !t.contains(e.relatedTarget)) hideTip();
+  });
+  el.thead.addEventListener('focusin', e => { const t = tipTarget(e); if (t) showTip(t); });
+  el.thead.addEventListener('focusout', hideTip);
+  document.addEventListener('click', e => {
+    const t = tipTarget(e);
+    if (t) showTip(t); else hideTip();
+  });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') hideTip(); });
+  el.chain.addEventListener('scroll', hideTip, { passive: true });
+  window.addEventListener('scroll', hideTip, { passive: true });
+  window.addEventListener('resize', hideTip);
+
+  // ---------- controls ----------
+
+  function selectAsset(asset) {
+    state.asset = asset;
+    store.set('oc.asset', asset);
+    for (const b of el.assets.querySelectorAll('button')) {
+      b.setAttribute('aria-pressed', String(b.dataset.asset === asset));
+    }
+    for (const s of document.querySelectorAll('[data-asset-name]')) s.textContent = asset;
+  }
+
+  el.assets.addEventListener('click', e => {
+    const b = e.target.closest('button[data-asset]');
+    if (!b || b.dataset.asset === state.asset) return;
+    selectAsset(b.dataset.asset);
+    state.index = null;
+    el.index.textContent = NA;
+    load();
+  });
+
+  el.expiry.addEventListener('change', () => {
+    state.expiry = Number(el.expiry.value);
+    store.set('oc.expiry', String(state.expiry));
+    load();
+  });
+
+  el.refresh.addEventListener('click', () => load({ force: true }));
+
+  setInterval(() => { if (!document.hidden) refreshIndex(); }, INDEX_POLL_MS);
+
+  // ---------- boot ----------
+
+  buildHead();
+  // On a phone the guide starts folded so the numbers are the first thing on screen.
+  if (window.matchMedia('(max-width: 900px)').matches) el.guide.open = false;
+  const savedAsset = store.get('oc.asset');
+  selectAsset(ASSETS[savedAsset] ? savedAsset : DEFAULT_ASSET);
+  const savedExpiry = Number(store.get('oc.expiry'));
+  state.expiry = Number.isFinite(savedExpiry) && savedExpiry > 0 ? savedExpiry : null;
+  load();
+})();
+</script>
+</body>
+</html>
