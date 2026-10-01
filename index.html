@@ -157,6 +157,22 @@
   .tag.raw { color: var(--dim); }
   .tag.derived { color: var(--amber); opacity: .85; }
   .vol-legend { color: var(--dim); }
+  .vol-chart { margin-top: 8px; }
+  .vol-chart[hidden] { display: none; }
+  .vol-chart-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 16px; }
+  .vol-chart-head b { color: var(--green); font-weight: 600; margin-right: 4px; }
+  .sw { display: inline-block; width: 14px; height: 0; margin: 0 5px 3px 0; border-top: 2px solid var(--green); vertical-align: middle; }
+  .sw.rv { border-top: 2px dashed var(--mid); }
+  .vol-chart-body { display: flex; gap: 6px; margin-top: 3px; }
+  .vc-y { display: flex; flex-direction: column; justify-content: space-between; width: 4ch; text-align: right; color: var(--dim); font-size: 10px; }
+  .vol-chart svg { flex: 1; min-width: 0; height: 96px; display: block; overflow: visible; border-top: var(--row-hair); border-bottom: var(--row-hair); }
+  .vol-chart path { fill: none; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+  .vol-chart path.iv { stroke: var(--green); filter: drop-shadow(0 0 3px rgba(51, 255, 102, .45)); }
+  .vol-chart path.rv { stroke: var(--mid); stroke-dasharray: 5 4; }
+  /* latest reading: a zero-length stroke with round caps draws a dot that ignores the stretch */
+  .vol-chart path.dot { stroke-width: 6; stroke-linecap: round; stroke-dasharray: none; filter: none; }
+  .vol-chart .mid { stroke: rgba(26, 127, 60, .4); stroke-width: 1; vector-effect: non-scaling-stroke; }
+  .vc-x { display: flex; justify-content: space-between; margin-left: calc(4ch + 6px); color: var(--dim); font-size: 10px; }
   .vol-legend .tag { margin-left: 0; margin-right: 2px; }
   .vol-band { font-size: 18px; font-weight: 600; letter-spacing: .1em; line-height: 1.2; text-shadow: var(--glow); }
   .vol-band.rich { color: var(--amber); text-shadow: 0 0 6px rgba(255, 176, 0, .3); }
@@ -170,9 +186,12 @@
   .vol-meaning.rich { color: var(--amber); }
 
   /* ---- layout: price ladder on the left, plain-English guide on the right ---- */
+  /* everything above and below the ladder keeps its size; the ladder takes what is left,
+     and on a short screen the page scrolls rather than squashing anything */
+  .head, .bar, .log, .vol, footer { flex-shrink: 0; }
   .main {
     flex: 1;
-    min-height: 0;
+    min-height: 260px;
     display: grid;
     grid-template-columns: minmax(0, 720px) minmax(240px, 380px);
     grid-template-rows: minmax(0, 1fr);
@@ -389,6 +408,18 @@
       <div class="vol-meaning" id="vol-meaning"></div>
     </div>
   </div>
+  <div class="vol-chart" id="vol-chart" hidden>
+    <div class="vol-chart-head">
+      <span class="lbl">[ OVER TIME ]<span class="tag raw">raw</span></span>
+      <span class="vol-legend"><i class="sw iv"></i>pricing: IV at the strike nearest spot, date nearest 30 days out <b id="vc-iv"></b>
+        &nbsp;<i class="sw rv"></i>actual: realized vol <b id="vc-rv"></b></span>
+    </div>
+    <div class="vol-chart-body">
+      <div class="vc-y"><span id="vc-y1"></span><span id="vc-y0"></span></div>
+      <svg id="vol-svg" viewBox="0 0 1000 100" preserveAspectRatio="none" aria-hidden="true"></svg>
+    </div>
+    <div class="vc-x"><span id="vc-x0"></span><span id="vc-xn"></span><span id="vc-x1"></span></div>
+  </div>
   <div class="vol-sub" id="vol-loading"></div>
 </section>
 
@@ -440,7 +471,7 @@
   'use strict';
 
   // Bump both when the page changes; they show in the bottom-right corner.
-  const VERSION = '1.5';
+  const VERSION = '1.6';
   const UPDATED = '2026-10-01';
 
   const API = 'https://www.deribit.com/api/v2/public/';
@@ -499,6 +530,8 @@
     vol: $('vol'), volCells: $('vol-cells'), volBand: $('vol-band'), volTrack: $('vol-track'), volMarker: $('vol-marker'),
     volWhere: $('vol-where'), volIv: $('vol-iv'), volIvLbl: $('vol-iv-lbl'), volRv: $('vol-rv'), volSpread: $('vol-spread'),
     volMeaning: $('vol-meaning'), volLoading: $('vol-loading'),
+    volChart: $('vol-chart'), volSvg: $('vol-svg'), vcIv: $('vc-iv'), vcRv: $('vc-rv'),
+    vcY0: $('vc-y0'), vcY1: $('vc-y1'), vcX0: $('vc-x0'), vcXn: $('vc-xn'), vcX1: $('vc-x1'),
   };
 
   const store = {
@@ -815,32 +848,69 @@
       const rv = (realized || []).filter(p => Array.isArray(p) && isNum(p[1]));
       if (!rv.length) throw new Error(`Deribit returned no ${asset} volatility history`);
 
-      let history = null;   // { label, percentile, days } or null when nothing long enough exists
+      // Our recorded snapshots for this asset: Deribit's mark IV at the strike nearest spot,
+      // for the expiry closest to 30 days out, plus the realized reading, per snapshot.
+      const series = (Array.isArray(recorded) ? recorded : [])
+        .filter(e => e && e.asset === asset && isNum(e.t) && Array.isArray(e.atm))
+        .map(e => {
+          const pick = e.atm.filter(x => isNum(x.iv)).map(x => ({ iv: x.iv, off: Math.abs((x.e - e.t) / 864e5 - 30) }))
+            .sort((x, y) => x.off - y.off)[0];
+          return { t: e.t, iv: pick ? pick.iv : null, rv: isNum(e.rv) ? e.rv : null };
+        })
+        .sort((x, y) => x.t - y.t);
+
+      let history = null;   // { label, percentile, days } or { recording, days, since }
       if (dvol.length >= 20) {
         history = percentileOf(dvol.map(c => c[4]), dvol[0][0], dvol[dvol.length - 1][0], `${asset} vol index (DVOL)`);
       } else {
-        // recorded snapshots: Deribit's mark IV at the strike nearest spot, for the expiry closest to 30 days out
-        const mine = (Array.isArray(recorded) ? recorded : [])
-          .filter(e => e.asset === asset && Array.isArray(e.atm) && e.t >= now - VOL_WINDOW_DAYS * 864e5)
-          .map(e => {
-            const pick = e.atm.filter(x => isNum(x.iv)).map(x => ({ iv: x.iv, off: Math.abs((x.e - e.t) / 864e5 - 30) }))
-              .sort((x, y) => x.off - y.off)[0];
-            return pick ? [e.t, pick.iv] : null;
-          }).filter(Boolean);
-        const span = mine.length ? (mine[mine.length - 1][0] - mine[0][0]) / 864e5 : 0;
+        const mine = series.filter(p => isNum(p.iv) && p.t >= now - VOL_WINDOW_DAYS * 864e5);
+        const span = mine.length ? (mine[mine.length - 1].t - mine[0].t) / 864e5 : 0;
         if (span >= VOL_MIN_HISTORY_DAYS) {
-          history = percentileOf(mine.map(p => p[1]), mine[0][0], mine[mine.length - 1][0], 'recorded IV');
+          history = percentileOf(mine.map(p => p.iv), mine[0].t, mine[mine.length - 1].t, 'recorded IV');
         } else {
-          history = { recording: true, days: Math.floor(span), since: mine.length ? mine[0][0] : null };
+          history = { recording: true, days: Math.floor(span), since: mine.length ? mine[0].t : null };
         }
       }
-      state.vol[asset] = { realized: rv[rv.length - 1][1], history };
+      state.vol[asset] = { realized: rv[rv.length - 1][1], history, series };
     } catch (e) {
       if (asset !== state.asset) return;
       state.vol[asset] = null;   // known to be unavailable; don't retry until refresh
       showError(`vol context unavailable: ${e.message || e}`);
     }
     renderVol();
+  }
+
+  // Pricing vs actual over time, from the recorded snapshots only. The window starts at
+  // the first recording and is at least 30 days wide, so the line visibly grows into it;
+  // once there is more than 90 days of history, the last 90 days are shown.
+  function renderVolChart(series) {
+    const pts = (series || []).filter(p => isNum(p.iv) && isNum(p.rv));
+    if (pts.length < 2) { el.volChart.hidden = true; return; }
+    const first = pts[0].t, last = pts[pts.length - 1].t;
+    const x0 = last - first > VOL_WINDOW_DAYS * 864e5 ? last - VOL_WINDOW_DAYS * 864e5 : first;
+    const x1 = Math.max(last, first + 30 * 864e5);
+    const shown = pts.filter(p => p.t >= x0);
+    const vals = shown.flatMap(p => [p.iv, p.rv]);
+    const lo = Math.max(0, Math.floor(Math.min(...vals) / 5) * 5 - 5);
+    const hi = Math.ceil(Math.max(...vals) / 5) * 5 + 5;
+    const W = 1000, H = 100;
+    const X = t => ((t - x0) / (x1 - x0) * W).toFixed(1);
+    const Y = v => (H - (v - lo) / (hi - lo) * H).toFixed(1);
+    const path = key => shown.map((p, i) => `${i ? 'L' : 'M'}${X(p.t)},${Y(p[key])}`).join(' ');
+    const midY = Y((lo + hi) / 2);
+    const latest = shown[shown.length - 1];
+    const dot = key => `<path class="${key} dot" d="M${X(latest.t)},${Y(latest[key])} h0"/>`;
+    el.volSvg.innerHTML =
+      `<line class="mid" x1="0" y1="${midY}" x2="${W}" y2="${midY}"/>` +
+      `<path class="rv" d="${path('rv')}"/><path class="iv" d="${path('iv')}"/>` + dot('rv') + dot('iv');
+    el.vcY1.textContent = hi + '%';
+    el.vcY0.textContent = lo + '%';
+    el.vcX0.textContent = fmtDate(x0);
+    el.vcXn.textContent = `${shown.length} readings`;
+    el.vcX1.textContent = fmtDate(x1);
+    el.vcIv.textContent = Math.round(latest.iv) + '%';
+    el.vcRv.textContent = Math.round(latest.rv) + '%';
+    el.volChart.hidden = false;
   }
 
   // Share of the earlier readings that today's reading is above.
@@ -884,6 +954,8 @@
     el.volBand.classList.toggle('rich', rich);
     el.volMeaning.textContent = band ? BAND[band] : 'waiting for the ladder to load.';
     el.volMeaning.classList.toggle('rich', rich);
+
+    renderVolChart(v.series);
 
     // derived: today against the recent past
     const h = v.history;
