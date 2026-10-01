@@ -149,10 +149,15 @@
   .vol-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 16px; }
   .vol-head [data-tip] { cursor: help; font-weight: 600; letter-spacing: .12em; text-shadow: var(--glow); }
   .vol-head [data-tip] span { border-bottom: 1px dotted var(--dim); }
-  .vol-src { color: var(--dim); }
   .vol-cells { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px 28px; margin-top: 4px; }
   .vol-cells[hidden] { display: none; }
   .vol-cells .lbl { margin-bottom: 2px; }
+  /* raw = Deribit's figure as reported; derived = our rule applied to raw figures */
+  .tag { font-size: 10px; letter-spacing: .1em; text-transform: lowercase; margin: 0 5px 0 6px; }
+  .tag.raw { color: var(--dim); }
+  .tag.derived { color: var(--amber); opacity: .85; }
+  .vol-legend { color: var(--dim); }
+  .vol-legend .tag { margin-left: 0; margin-right: 2px; }
   .vol-band { font-size: 18px; font-weight: 600; letter-spacing: .1em; line-height: 1.2; text-shadow: var(--glow); }
   .vol-band.rich { color: var(--amber); text-shadow: 0 0 6px rgba(255, 176, 0, .3); }
   .vol-track { position: relative; height: 5px; margin: 5px 0 4px; border: 1px solid var(--dim); }
@@ -364,23 +369,23 @@
 <section class="vol" id="vol" hidden aria-labelledby="vol-h">
   <div class="vol-head">
     <span id="vol-h" tabindex="0" data-tip="vol" aria-describedby="tip"><span>[ VOL CONTEXT ]</span></span>
-    <span class="vol-src" id="vol-src"></span>
+    <span class="vol-legend"><span class="tag raw">raw</span>= Deribit's figure as reported &nbsp;<span class="tag derived">derived</span>= our rule applied to raw figures</span>
   </div>
   <div class="vol-cells" id="vol-cells">
     <div>
-      <div class="lbl">[ VOL RIGHT NOW ]</div>
-      <div class="vol-band" id="vol-band">--</div>
-      <div class="vol-track" aria-hidden="true"><i id="vol-marker"></i></div>
+      <div class="lbl">[ MARKET VS REALITY ]<span class="tag raw">raw</span></div>
+      <div class="vol-kv"><span id="vol-iv-lbl">pricing</span><b id="vol-iv">--</b></div>
+      <div class="vol-kv"><span>actual</span><b id="vol-rv">--</b></div>
+      <div class="vol-kv"><span>gap</span><b id="vol-spread">--</b></div>
+    </div>
+    <div>
+      <div class="lbl">[ VS RECENT HISTORY ]<span class="tag derived">derived</span></div>
+      <div class="vol-track" id="vol-track" aria-hidden="true"><i id="vol-marker"></i></div>
       <div class="vol-sub" id="vol-where"></div>
     </div>
     <div>
-      <div class="lbl">[ MARKET VS REALITY ]</div>
-      <div class="vol-kv"><span>pricing</span><b id="vol-iv">--</b></div>
-      <div class="vol-kv"><span>actual</span><b id="vol-rv">--</b></div>
-      <div class="vol-sub" id="vol-spread"></div>
-    </div>
-    <div>
-      <div class="lbl">[ WHAT THIS MEANS ]</div>
+      <div class="lbl">[ WHAT THIS MEANS ]<span class="tag derived">derived</span></div>
+      <div class="vol-band" id="vol-band">--</div>
       <div class="vol-meaning" id="vol-meaning"></div>
     </div>
   </div>
@@ -435,8 +440,8 @@
   'use strict';
 
   // Bump both when the page changes; they show in the bottom-right corner.
-  const VERSION = '1.4';
-  const UPDATED = '2026-09-30';
+  const VERSION = '1.5';
+  const UPDATED = '2026-10-01';
 
   const API = 'https://www.deribit.com/api/v2/public/';
   const CONCURRENCY = 10;
@@ -480,11 +485,10 @@
       tip: a => `How much the option's price moves per $1 move in ${a}. Also a rough guide to the odds of triggering, which is what the Chance column shows. Negative for Buy Lower, because those gain when the price falls.` },
   ];
   const TIPS = Object.fromEntries(COLS.map(c => [c.key, c]));
-  TIPS.vol = { name: 'Vol context', tip: () => {
-    const v = state.vol[state.asset];
-    return 'Premiums rise and fall with how much movement the market expects. When expectations are high, ' +
-      `you get paid more for the same strike. This compares today against the last ${v ? v.days : 90} days.`;
-  } };
+  TIPS.vol = { name: 'Vol context', tip: a =>
+    'Premiums rise and fall with how much movement the market expects. When expectations are high, you get ' +
+    `paid more for the same strike. This compares what the market is paying for against how much ${a} has ` +
+    'actually been moving, and, where a history exists, against the recent past.' };
   const NA = '--';
 
   const $ = id => document.getElementById(id);
@@ -492,8 +496,8 @@
     assets: $('assets'), expiry: $('expiry'), index: $('index'), refresh: $('refresh'),
     status: $('status'), note: $('note'), err: $('err'),
     chain: $('chain'), thead: $('thead'), tbody: $('tbody'), tip: $('tip'), guide: $('guide'),
-    vol: $('vol'), volSrc: $('vol-src'), volCells: $('vol-cells'), volBand: $('vol-band'), volMarker: $('vol-marker'),
-    volWhere: $('vol-where'), volIv: $('vol-iv'), volRv: $('vol-rv'), volSpread: $('vol-spread'),
+    vol: $('vol'), volCells: $('vol-cells'), volBand: $('vol-band'), volTrack: $('vol-track'), volMarker: $('vol-marker'),
+    volWhere: $('vol-where'), volIv: $('vol-iv'), volIvLbl: $('vol-iv-lbl'), volRv: $('vol-rv'), volSpread: $('vol-spread'),
     volMeaning: $('vol-meaning'), volLoading: $('vol-loading'),
   };
 
@@ -639,9 +643,10 @@
       el.chain.hidden = true;
     }
     el.chain.classList.add('stale');
-    el.note.textContent =
-      `strikes shown are at least ${fmtShare(RULES.minGap)} from spot and run out to where the premium gets too thin. ` +
-      `longer dates reach further.`;
+    el.note.innerHTML =
+      `<span class="tag raw">raw</span>every number in the ladder is Deribit's &nbsp; ` +
+      `<span class="tag derived">derived</span>which strikes appear: at least ${fmtShare(RULES.minGap)} from spot, ` +
+      `out to where the premium gets too thin; longer dates reach further.`;
 
     loadVol(asset, force);
 
@@ -680,7 +685,11 @@
         call: candidates('call', k => k >= spot * (1 + RULES.minGap), 1),
         put: candidates('put', k => k <= spot * (1 - RULES.minGap), -1),
       };
-      const tasks = [];
+      // The ladder skips strikes within 1% of spot; the panel's "pricing" figure wants the
+      // strike nearest spot regardless, so fetch that one too (call and put share one IV).
+      const atmInst = onDate.reduce((best, i) => !best || Math.abs(i.strike - spot) < Math.abs(best.strike - spot) ? i : best, null);
+      let atmIv = null;
+      const tasks = atmInst ? [{ type: 'atm', i: 0, inst: atmInst }] : [];
       for (let i = 0; i < Math.max(lists.call.length, lists.put.length); i++) {
         for (const type of ['call', 'put']) if (lists[type][i]) tasks.push({ type, i, inst: lists[type][i] });
       }
@@ -698,9 +707,10 @@
       let done = 0, failed = 0, firstErr = null;
       setStatus('fetching odds...', true);
       await pool(tasks, CONCURRENCY, async ({ type, i, inst }) => {
-        if (i >= cut[type]) return;
+        if (type !== 'atm' && i >= cut[type]) return;
         try {
           const t = await api('ticker', { instrument_name: inst.instrument_name }, signal);
+          if (type === 'atm') { if (t.mark_iv > 0) atmIv = t.mark_iv; return; }
           tickers[type][i] = t;
           if (!worthOffering(t, inst, spot, days, cfg)) cut[type] = Math.min(cut[type], i);
         } catch (e) {
@@ -738,7 +748,7 @@
       }
       // highest price at the top, like a price axis
       rows.sort((x, y) => y.strike - x.strike);
-      state.chain = { asset, expiry, rows, spot };
+      state.chain = { asset, expiry, rows, spot, atmIv };
 
       render();
       renderVol();
@@ -766,54 +776,65 @@
 
   // ---------- vol context ----------
 
-  const VOL_WINDOW_DAYS = 90;
+  const VOL_WINDOW_DAYS = 90;      // how far back "recent history" looks
+  const VOL_MIN_HISTORY_DAYS = 30; // recorded history needed before it is used for a percentile
+  const VOL_GAP_POINTS = 5;        // pricing this far above actual = RICH, this far below = CHEAP
+  const HISTORY_URL = 'data/history.json';
 
-  // Where today's volatility sits against its recent past, for the panel above the ladder.
-  //
-  // Source of the percentile, per asset (checked 30 Sep 2026):
-  //   BTC: Deribit's DVOL index (a direct measure of implied vol), 12-hour candles over the
-  //        last 90 days. `get_volatility_index_data` serves BTC and ETH only.
-  //   SOL: no DVOL exists, so the percentile falls back to Deribit's realized-volatility series
-  //        (`get_historical_volatility`), which Deribit only publishes for about the last 16 days.
-  //        The panel states the real number of days it is comparing against.
-  // "actual" in the panel is always the latest realized-volatility reading. Deribit does not
-  // document the look-back window behind that figure.
+  // The panel above the ladder. Everything in the "market vs reality" cell is raw: Deribit's
+  // mark IV at the strike nearest spot ("pricing") and Deribit's latest realized-volatility
+  // reading ("actual"). The band is derived from their gap. The history cell is derived too:
+  // today's reading placed against its recent past, which comes from
+  //   BTC: Deribit's DVOL index, 12-hour candles over the last 90 days (a direct IV measure);
+  //   SOL: no DVOL exists, so a history is recorded by scripts/snapshot.mjs four times a day
+  //        into data/history.json and used once it covers VOL_MIN_HISTORY_DAYS.
+  // Deribit's own realized-vol series is only ~16 days long and is not used for percentiles.
   async function loadVol(asset, force) {
     const cached = state.vol[asset];
     if (cached !== undefined && !force) { renderVol(); return; }
     state.vol[asset] = undefined;
     el.vol.hidden = false;
     el.volCells.hidden = true;
-    el.volSrc.textContent = '';
     el.volLoading.textContent = '> reading vol history...';
     const cursor = document.createElement('span');
     cursor.className = 'cursor';
-    cursor.textContent = '\u2588';
+    cursor.textContent = '█';
     el.volLoading.append(cursor);
     try {
       const cfg = ASSETS[asset];
       const now = Date.now();
-      const [realized, dvol] = await Promise.all([
+      const [realized, dvol, recorded] = await Promise.all([
         api('get_historical_volatility', { currency: cfg.volCurrency }),
         api('get_volatility_index_data', {
           currency: cfg.volCurrency, resolution: 43200,
           start_timestamp: now - VOL_WINDOW_DAYS * 864e5, end_timestamp: now,
-        }).then(r => (r && r.data) || [], () => []),   // no index for this asset = empty, not an error
+        }).then(r => (r && r.data) || [], () => []),          // no index for this asset = empty, not an error
+        fetch(`${HISTORY_URL}?t=${Math.floor(now / 36e5)}`).then(r => r.ok ? r.json() : [], () => []),  // absent when opened as a file
       ]);
       if (asset !== state.asset) return;
-      // realized: [timestamp, annualised vol %], hourly, occasionally duplicated
-      const seen = new Set();
-      const rv = (realized || []).filter(p => Array.isArray(p) && isNum(p[1]) && !seen.has(p[0]) && seen.add(p[0]));
+      const rv = (realized || []).filter(p => Array.isArray(p) && isNum(p[1]));
       if (!rv.length) throw new Error(`Deribit returned no ${asset} volatility history`);
-      const series = dvol.length >= 20
-        ? { source: 'dvol', label: `${asset} vol index (DVOL)`, points: dvol.map(c => [c[0], c[4]]) }
-        : { source: 'realized', label: 'realized vol', points: rv };
-      const values = series.points.map(p => p[1]);
-      const today = values[values.length - 1];
-      const past = values.slice(0, -1);
-      const percentile = Math.round(100 * past.filter(v => v < today).length / past.length);
-      const days = Math.max(1, Math.round((series.points[series.points.length - 1][0] - series.points[0][0]) / 864e5));
-      state.vol[asset] = { source: series.source, label: series.label, percentile, days, realized: rv[rv.length - 1][1] };
+
+      let history = null;   // { label, percentile, days } or null when nothing long enough exists
+      if (dvol.length >= 20) {
+        history = percentileOf(dvol.map(c => c[4]), dvol[0][0], dvol[dvol.length - 1][0], `${asset} vol index (DVOL)`);
+      } else {
+        // recorded snapshots: Deribit's mark IV at the strike nearest spot, for the expiry closest to 30 days out
+        const mine = (Array.isArray(recorded) ? recorded : [])
+          .filter(e => e.asset === asset && Array.isArray(e.atm) && e.t >= now - VOL_WINDOW_DAYS * 864e5)
+          .map(e => {
+            const pick = e.atm.filter(x => isNum(x.iv)).map(x => ({ iv: x.iv, off: Math.abs((x.e - e.t) / 864e5 - 30) }))
+              .sort((x, y) => x.off - y.off)[0];
+            return pick ? [e.t, pick.iv] : null;
+          }).filter(Boolean);
+        const span = mine.length ? (mine[mine.length - 1][0] - mine[0][0]) / 864e5 : 0;
+        if (span >= VOL_MIN_HISTORY_DAYS) {
+          history = percentileOf(mine.map(p => p[1]), mine[0][0], mine[mine.length - 1][0], 'recorded IV');
+        } else {
+          history = { recording: true, days: Math.floor(span), since: mine.length ? mine[0][0] : null };
+        }
+      }
+      state.vol[asset] = { realized: rv[rv.length - 1][1], history };
     } catch (e) {
       if (asset !== state.asset) return;
       state.vol[asset] = null;   // known to be unavailable; don't retry until refresh
@@ -822,10 +843,21 @@
     renderVol();
   }
 
+  // Share of the earlier readings that today's reading is above.
+  function percentileOf(values, firstTs, lastTs, label) {
+    const today = values[values.length - 1];
+    const past = values.slice(0, -1);
+    return {
+      label,
+      percentile: Math.round(100 * past.filter(v => v < today).length / past.length),
+      days: Math.max(1, Math.round((lastTs - firstTs) / 864e5)),
+    };
+  }
+
   const BAND = {
-    CHEAP: 'premiums are thin right now. the same strike pays less than usual.',
-    NORMAL: 'premiums are around their usual level.',
-    RICH: 'premiums are above where they usually sit. you get paid more than usual for the same strike.',
+    RICH: 'the market is paying for more movement than has actually happened. the same strike pays more than usual: a good window to sell.',
+    NORMAL: 'the market is paying for about as much movement as has actually happened. premiums are around their usual level.',
+    CHEAP: 'the market is paying for less movement than has actually happened. premiums are thin: the same strike pays less than usual.',
   };
 
   function renderVol() {
@@ -836,32 +868,35 @@
     el.volCells.hidden = false;
     el.vol.hidden = false;
 
-    const band = v.percentile < 30 ? 'CHEAP' : v.percentile > 70 ? 'RICH' : 'NORMAL';
+    // raw: pricing vs actual
+    const c = state.chain;
+    const iv = c && c.asset === state.asset && isNum(c.atmIv) ? c.atmIv : null;
+    el.volIv.textContent = isNum(iv) ? Math.round(iv) + '%' : NA;
+    el.volIvLbl.textContent = c && c.asset === state.asset ? `pricing (${fmtDate(c.expiry).slice(0, 6)})` : 'pricing';
+    el.volRv.textContent = Math.round(v.realized) + '%';
+    const gap = isNum(iv) ? iv - v.realized : null;
+    el.volSpread.textContent = isNum(gap) ? `${gap > 0 ? '+' : ''}${Math.round(gap)} points` : NA;
+
+    // derived: the band follows the gap
+    const band = !isNum(gap) ? null : gap >= VOL_GAP_POINTS ? 'RICH' : gap <= -VOL_GAP_POINTS ? 'CHEAP' : 'NORMAL';
     const rich = band === 'RICH';
-    el.volBand.textContent = band;
+    el.volBand.textContent = band || NA;
     el.volBand.classList.toggle('rich', rich);
-    el.volMarker.style.left = v.percentile + '%';
-    el.volMarker.classList.toggle('rich', rich);
-    el.volWhere.textContent = `higher than ${v.percentile}% of the last ${v.days} days`;
-    el.volSrc.textContent = `today vs ${v.label}, last ${v.days} days`;
-    el.volMeaning.textContent = BAND[band];
+    el.volMeaning.textContent = band ? BAND[band] : 'waiting for the ladder to load.';
     el.volMeaning.classList.toggle('rich', rich);
 
-    // "pricing": IV of the loaded strike closest to spot, for the selected expiration date
-    const c = state.chain;
-    let iv = null;
-    if (c && c.asset === state.asset && isNum(state.index)) {
-      const nearest = c.rows.filter(r => r.q && isNum(r.q.iv))
-        .sort((x, y) => Math.abs(x.strike - state.index) - Math.abs(y.strike - state.index))[0];
-      if (nearest) iv = nearest.q.iv;
-    }
-    el.volIv.textContent = isNum(iv) ? Math.round(iv) + '%' : NA;
-    el.volRv.textContent = Math.round(v.realized) + '%';
-    if (isNum(iv)) {
-      const diff = Math.round(iv - v.realized);
-      el.volSpread.textContent = `${diff > 0 ? '+' : ''}${diff} points`;
+    // derived: today against the recent past
+    const h = v.history;
+    if (h && !h.recording) {
+      el.volTrack.hidden = false;
+      el.volMarker.style.left = h.percentile + '%';
+      el.volMarker.classList.toggle('rich', h.percentile > 70);
+      el.volWhere.textContent = `${h.label} today is higher than ${h.percentile}% of the last ${h.days} days`;
     } else {
-      el.volSpread.textContent = '';
+      el.volTrack.hidden = true;
+      el.volWhere.textContent = h && h.since
+        ? `no ready-made ${state.asset} history exists. recording Deribit's IV since ${fmtDate(h.since)}: ${h.days} of ${VOL_MIN_HISTORY_DAYS} days so far.`
+        : `no ready-made ${state.asset} history exists yet.`;
     }
   }
 
