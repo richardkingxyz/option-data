@@ -396,7 +396,6 @@
       <div class="lbl"><span tabindex="0" data-tip="reality" aria-describedby="tip">[ MARKET VS REALITY ]</span><span class="tag src" tabindex="0" data-tip="src-deribit" aria-describedby="tip">deribit</span></div>
       <div class="vol-kv"><span id="vol-iv-lbl">pricing</span><b id="vol-iv">--</b></div>
       <div class="vol-kv"><span>actual</span><b id="vol-rv">--</b></div>
-      <div class="vol-kv"><span>gap</span><b id="vol-spread">--</b></div>
     </div>
     <div>
       <div class="lbl"><span tabindex="0" data-tip="band" aria-describedby="tip">[ WHAT THIS MEANS ]</span><span class="tag ours" tabindex="0" data-tip="src-ours" aria-describedby="tip">ours</span></div>
@@ -464,7 +463,7 @@
   'use strict';
 
   // Bump both when the page changes; they show in the bottom-right corner.
-  const VERSION = '1.8';
+  const VERSION = '1.9';
   const UPDATED = '2026-10-01';
 
   const API = 'https://www.deribit.com/api/v2/public/';
@@ -519,8 +518,7 @@
     const date = c && c.asset === a ? fmtDate(c.expiry).slice(0, 6) : 'the selected date';
     const pct = x => isNum(x) ? x + '%' : '--';
     return `pricing ${pct(d && d.iv)}: how much movement the market is paying for until ${date}. Deribit's IV at the strike nearest spot.\n` +
-      `actual ${pct(d && d.rv)}: how much ${a} has actually been moving. Deribit's realized volatility, latest reading.\n` +
-      `gap ${d && isNum(d.gap) ? (d.gap > 0 ? '+' : '') + d.gap : '--'}: pricing minus actual. Above zero, the market pays for more movement than has been happening.`;
+      `actual ${pct(d && d.rv)}: how much ${a} has actually been moving. Deribit's realized volatility, latest reading.`;
   } };
   TIPS.band = { name: 'What this means', tip: () =>
     `Our reading of the gap, not Deribit's.\nRICH: pricing ${VOL_GAP_POINTS}+ points above actual. You are paid more than usual for the same strike.\n` +
@@ -552,7 +550,7 @@
     status: $('status'), err: $('err'),
     chain: $('chain'), thead: $('thead'), tbody: $('tbody'), tip: $('tip'),
     guide: $('guide'), guideBtn: $('guide-btn'), guideClose: $('guide-close'),
-    vol: $('vol'), volCells: $('vol-cells'), volBand: $('vol-band'), volIv: $('vol-iv'), volIvLbl: $('vol-iv-lbl'), volRv: $('vol-rv'), volSpread: $('vol-spread'),
+    vol: $('vol'), volCells: $('vol-cells'), volBand: $('vol-band'), volIv: $('vol-iv'), volIvLbl: $('vol-iv-lbl'), volRv: $('vol-rv'),
     volMeaning: $('vol-meaning'), volLoading: $('vol-loading'),
     volChart: $('vol-chart'), volSvg: $('vol-svg'),
     vcY0: $('vc-y0'), vcY1: $('vc-y1'), vcX0: $('vc-x0'), vcXn: $('vc-xn'), vcX1: $('vc-x1'),
@@ -964,9 +962,8 @@
     el.volIv.textContent = isNum(iv) ? iv + '%' : NA;
     el.volIvLbl.textContent = c && c.asset === state.asset ? `pricing (${fmtDate(c.expiry).slice(0, 6)})` : 'pricing';
     el.volRv.textContent = rvShown + '%';
-    const gap = isNum(iv) ? iv - rvShown : null;
-    el.volSpread.textContent = isNum(gap) ? `${gap > 0 ? '+' : ''}${gap} points` : NA;
-    v.shown = { iv, rv: rvShown, gap };   // for the tooltips
+    const gap = isNum(iv) ? iv - rvShown : null;   // the band reads this; it isn't shown, anyone can subtract
+    v.shown = { iv, rv: rvShown };                  // for the tooltips
 
     // derived: the band follows the gap
     const band = !isNum(gap) ? null : gap >= VOL_GAP_POINTS ? 'RICH' : gap <= -VOL_GAP_POINTS ? 'CHEAP' : 'NORMAL';
