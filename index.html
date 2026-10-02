@@ -150,7 +150,8 @@
   .vol-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 16px; }
   .vol-head [data-tip] { cursor: help; font-weight: 600; letter-spacing: .12em; text-shadow: var(--glow); }
   .vol-head [data-tip] span { border-bottom: 1px dotted var(--dim); }
-  .vol-cells { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px 28px; margin-top: 4px; }
+  .vol-cells { display: grid; grid-template-columns: 1fr 2fr; gap: 4px 28px; margin-top: 4px; }
+  .vol-cells .lbl [data-tip] { cursor: help; border-bottom: 1px dotted var(--dim); }
   .vol-cells[hidden] { display: none; }
   .vol-cells .lbl { margin-bottom: 2px; }
   /* who produced the number: deribit = their figure as reported; ours = our rule applied to it */
@@ -179,9 +180,6 @@
   .vc-x { display: flex; justify-content: space-between; margin-left: calc(4ch + 6px); color: var(--dim); font-size: 10px; }
   .vol-band { font-size: 18px; font-weight: 600; letter-spacing: .1em; line-height: 1.2; text-shadow: var(--glow); }
   .vol-band.rich { color: var(--amber); text-shadow: 0 0 6px rgba(255, 176, 0, .3); }
-  .vol-track { position: relative; height: 5px; margin: 5px 0 4px; border: 1px solid var(--dim); }
-  .vol-track i { position: absolute; top: -4px; width: 3px; height: 11px; margin-left: -1px; background: var(--green); box-shadow: var(--glow); }
-  .vol-track i.rich { background: var(--amber); box-shadow: 0 0 6px rgba(255, 176, 0, .4); }
   .vol-kv { display: flex; justify-content: space-between; max-width: 22ch; color: var(--mid); }
   .vol-kv b { color: var(--green); font-weight: 600; }
   .vol-sub { color: var(--mid); }
@@ -335,6 +333,7 @@
     pointer-events: none;
   }
   #tip b { display: block; margin-bottom: 2px; letter-spacing: .1em; text-shadow: var(--glow); }
+  #tip { white-space: pre-line; }
 
   footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 16px; color: var(--dim); font-size: 11px; }
   #version { margin-left: auto; white-space: nowrap; }
@@ -394,18 +393,13 @@
   </div>
   <div class="vol-cells" id="vol-cells">
     <div>
-      <div class="lbl">[ MARKET VS REALITY ]<span class="tag src" tabindex="0" data-tip="src-deribit" aria-describedby="tip">deribit</span></div>
+      <div class="lbl"><span tabindex="0" data-tip="reality" aria-describedby="tip">[ MARKET VS REALITY ]</span><span class="tag src" tabindex="0" data-tip="src-deribit" aria-describedby="tip">deribit</span></div>
       <div class="vol-kv"><span id="vol-iv-lbl">pricing</span><b id="vol-iv">--</b></div>
       <div class="vol-kv"><span>actual</span><b id="vol-rv">--</b></div>
       <div class="vol-kv"><span>gap</span><b id="vol-spread">--</b></div>
     </div>
     <div>
-      <div class="lbl">[ RECENT HISTORY ]<span class="tag ours" tabindex="0" data-tip="src-ours" aria-describedby="tip">ours</span></div>
-      <div class="vol-track" id="vol-track" aria-hidden="true"><i id="vol-marker"></i></div>
-      <div class="vol-sub" id="vol-where"></div>
-    </div>
-    <div>
-      <div class="lbl">[ WHAT THIS MEANS ]<span class="tag ours" tabindex="0" data-tip="src-ours" aria-describedby="tip">ours</span></div>
+      <div class="lbl"><span tabindex="0" data-tip="band" aria-describedby="tip">[ WHAT THIS MEANS ]</span><span class="tag ours" tabindex="0" data-tip="src-ours" aria-describedby="tip">ours</span></div>
       <div class="vol-band" id="vol-band">--</div>
       <div class="vol-meaning" id="vol-meaning"></div>
     </div>
@@ -413,7 +407,7 @@
   <div class="vol-chart" id="vol-chart" hidden>
     <div class="vol-chart-head">
       <span class="lbl" tabindex="0" data-tip="chart" aria-describedby="tip"><span>[ OVER TIME ]</span><span class="tag src">deribit</span></span>
-      <span class="vol-legend"><i class="sw iv"></i>pricing <b id="vc-iv"></b> &nbsp;<i class="sw rv"></i>actual <b id="vc-rv"></b></span>
+      <span class="vol-legend"><i class="sw iv"></i>pricing &nbsp;<i class="sw rv"></i>actual</span>
     </div>
     <div class="vol-chart-body">
       <div class="vc-y"><span id="vc-y1"></span><span id="vc-y0"></span></div>
@@ -470,7 +464,7 @@
   'use strict';
 
   // Bump both when the page changes; they show in the bottom-right corner.
-  const VERSION = '1.7';
+  const VERSION = '1.8';
   const UPDATED = '2026-10-01';
 
   const API = 'https://www.deribit.com/api/v2/public/';
@@ -520,9 +514,26 @@
     'Every number in the ladder is Deribit\'s.' };
   TIPS['src-deribit'] = { name: 'Deribit', tip: () => "Deribit's figure, as reported." };
   TIPS['src-ours'] = { name: 'Ours', tip: () => 'Our rule applied to Deribit\'s figures. A reading, not a fact.' };
-  TIPS.chart = { name: 'Over time', tip: () =>
-    'Recorded four times a day since 01 Oct 2026. Pricing is Deribit\'s IV at the strike nearest spot, for the date closest ' +
-    'to 30 days out. Actual is Deribit\'s realized volatility. Nothing is recalculated.' };
+  TIPS.reality = { name: 'Market vs reality', tip: a => {
+    const v = state.vol[a], c = state.chain, d = v && v.shown;
+    const date = c && c.asset === a ? fmtDate(c.expiry).slice(0, 6) : 'the selected date';
+    const pct = x => isNum(x) ? x + '%' : '--';
+    return `pricing ${pct(d && d.iv)}: how much movement the market is paying for until ${date}. Deribit's IV at the strike nearest spot.\n` +
+      `actual ${pct(d && d.rv)}: how much ${a} has actually been moving. Deribit's realized volatility, latest reading.\n` +
+      `gap ${d && isNum(d.gap) ? (d.gap > 0 ? '+' : '') + d.gap : '--'}: pricing minus actual. Above zero, the market pays for more movement than has been happening.`;
+  } };
+  TIPS.band = { name: 'What this means', tip: () =>
+    `Our reading of the gap, not Deribit's.\nRICH: pricing ${VOL_GAP_POINTS}+ points above actual. You are paid more than usual for the same strike.\n` +
+    `NORMAL: within ${VOL_GAP_POINTS} points either way. Premiums around their usual level.\n` +
+    `CHEAP: pricing ${VOL_GAP_POINTS}+ points below actual. Premiums are thin.` };
+  TIPS.chart = { name: 'Over time', tip: a => {
+    const v = state.vol[a], h = v && v.history;
+    const hist = !h ? '' : h.recording
+      ? `\nRecorded since ${h.since ? fmtDate(h.since) : 'today'}: ${h.days} of the ${VOL_MIN_HISTORY_DAYS} days needed before today can be placed against its recent past.`
+      : `\nRecent history: ${h.label} today is above ${h.percentile}% of the last ${h.days} days.`;
+    return 'Pricing is Deribit\'s IV at the strike nearest spot for the date closest to 30 days out; actual is Deribit\'s realized ' +
+      'volatility. Recorded four times a day since 01 Oct 2026, nothing recalculated. The dots are the latest readings.' + hist;
+  } };
   TIPS.sell = { name: 'Sell higher', tip: a =>
     `A covered call: you hold ${a} and pick a price above spot. If ${a} is past it on expiry day, your ${a} is sold at that price; ` +
     `if not, you keep it. Either way you keep the premium.` };
@@ -541,10 +552,9 @@
     status: $('status'), err: $('err'),
     chain: $('chain'), thead: $('thead'), tbody: $('tbody'), tip: $('tip'),
     guide: $('guide'), guideBtn: $('guide-btn'), guideClose: $('guide-close'),
-    vol: $('vol'), volCells: $('vol-cells'), volBand: $('vol-band'), volTrack: $('vol-track'), volMarker: $('vol-marker'),
-    volWhere: $('vol-where'), volIv: $('vol-iv'), volIvLbl: $('vol-iv-lbl'), volRv: $('vol-rv'), volSpread: $('vol-spread'),
+    vol: $('vol'), volCells: $('vol-cells'), volBand: $('vol-band'), volIv: $('vol-iv'), volIvLbl: $('vol-iv-lbl'), volRv: $('vol-rv'), volSpread: $('vol-spread'),
     volMeaning: $('vol-meaning'), volLoading: $('vol-loading'),
-    volChart: $('vol-chart'), volSvg: $('vol-svg'), vcIv: $('vc-iv'), vcRv: $('vc-rv'),
+    volChart: $('vol-chart'), volSvg: $('vol-svg'),
     vcY0: $('vc-y0'), vcY1: $('vc-y1'), vcX0: $('vc-x0'), vcXn: $('vc-xn'), vcX1: $('vc-x1'),
   };
 
@@ -916,10 +926,9 @@
     el.vcY1.textContent = hi + '%';
     el.vcY0.textContent = lo + '%';
     el.vcX0.textContent = fmtDate(x0);
-    el.vcXn.textContent = `${shown.length} readings`;
+    const h = state.vol[state.asset] && state.vol[state.asset].history;
+    el.vcXn.textContent = `${shown.length} readings` + (h && h.recording ? ` · ${h.days}/${VOL_MIN_HISTORY_DAYS} days` : '');
     el.vcX1.textContent = fmtDate(x1);
-    el.vcIv.textContent = Math.round(latest.iv) + '%';
-    el.vcRv.textContent = Math.round(latest.rv) + '%';
     el.volChart.hidden = false;
   }
 
@@ -950,12 +959,14 @@
 
     // raw: pricing vs actual
     const c = state.chain;
-    const iv = c && c.asset === state.asset && isNum(c.atmIv) ? c.atmIv : null;
-    el.volIv.textContent = isNum(iv) ? Math.round(iv) + '%' : NA;
+    const iv = c && c.asset === state.asset && isNum(c.atmIv) ? Math.round(c.atmIv) : null;
+    const rvShown = Math.round(v.realized);
+    el.volIv.textContent = isNum(iv) ? iv + '%' : NA;
     el.volIvLbl.textContent = c && c.asset === state.asset ? `pricing (${fmtDate(c.expiry).slice(0, 6)})` : 'pricing';
-    el.volRv.textContent = Math.round(v.realized) + '%';
-    const gap = isNum(iv) ? iv - v.realized : null;
-    el.volSpread.textContent = isNum(gap) ? `${gap > 0 ? '+' : ''}${Math.round(gap)} points` : NA;
+    el.volRv.textContent = rvShown + '%';
+    const gap = isNum(iv) ? iv - rvShown : null;
+    el.volSpread.textContent = isNum(gap) ? `${gap > 0 ? '+' : ''}${gap} points` : NA;
+    v.shown = { iv, rv: rvShown, gap };   // for the tooltips
 
     // derived: the band follows the gap
     const band = !isNum(gap) ? null : gap >= VOL_GAP_POINTS ? 'RICH' : gap <= -VOL_GAP_POINTS ? 'CHEAP' : 'NORMAL';
@@ -967,19 +978,6 @@
 
     renderVolChart(v.series);
 
-    // derived: today against the recent past
-    const h = v.history;
-    if (h && !h.recording) {
-      el.volTrack.hidden = false;
-      el.volMarker.style.left = h.percentile + '%';
-      el.volMarker.classList.toggle('rich', h.percentile > 70);
-      el.volWhere.textContent = `${h.label} · above ${h.percentile}% of the last ${h.days} days`;
-    } else {
-      el.volTrack.hidden = true;
-      el.volWhere.textContent = h && h.since
-        ? `recording since ${fmtDate(h.since).slice(0, 6)} · ${h.days}/${VOL_MIN_HISTORY_DAYS} days`
-        : 'no history yet';
-    }
   }
 
   // Is this strike still worth offering? The premium, as a yearly rate on what you'd
