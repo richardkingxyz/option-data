@@ -70,15 +70,16 @@
     text-shadow: var(--glow);
     white-space: nowrap;
   }
-  .tagline { color: var(--dim); font-size: 12px; }
   .head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; }
 
   /* top-right corner links, drawn as bracketed terminal labels */
   .links { margin-left: auto; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; }
-  .links a { color: var(--green); text-decoration: none; white-space: nowrap; }
-  .links a::before { content: "[ "; color: var(--dim); }
-  .links a::after { content: " ]"; color: var(--dim); }
-  .links a:hover { text-shadow: var(--glow); text-decoration: underline; }
+  .links a, .links .linkish { color: var(--green); text-decoration: none; white-space: nowrap; }
+  .links .linkish { background: none; border: 0; height: auto; padding: 0; font: inherit; font-size: 12px; cursor: pointer; }
+  .links .linkish[aria-expanded="true"] { color: var(--amber); }
+  .links a::before, .links .linkish::before { content: "[ "; color: var(--dim); }
+  .links a::after, .links .linkish::after { content: " ]"; color: var(--dim); }
+  .links a:hover, .links .linkish:hover { text-shadow: var(--glow); text-decoration: underline; background: none; }
   .links a:focus-visible { outline: 1px solid var(--green); outline-offset: 2px; }
 
   /* ---- controls ---- */
@@ -134,9 +135,9 @@
   /* ---- status / errors ---- */
   .log { display: flex; flex-direction: column; gap: 2px; min-height: 1.45em; }
   #status { color: var(--green); }
-  #note { color: var(--dim); font-size: 12px; }
   #err { color: var(--amber); }
-  #err:empty, #note:empty { display: none; }
+  #err:empty { display: none; }
+  #status[data-tip] { cursor: help; }
   #err div { overflow-wrap: anywhere; }
 
   .cursor { display: inline-block; margin-left: 2px; animation: blink 1s steps(1) infinite; }
@@ -152,15 +153,18 @@
   .vol-cells { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px 28px; margin-top: 4px; }
   .vol-cells[hidden] { display: none; }
   .vol-cells .lbl { margin-bottom: 2px; }
-  /* raw = Deribit's figure as reported; derived = our rule applied to raw figures */
-  .tag { font-size: 10px; letter-spacing: .1em; text-transform: lowercase; margin: 0 5px 0 6px; }
-  .tag.raw { color: var(--dim); }
-  .tag.derived { color: var(--amber); opacity: .85; }
+  /* who produced the number: deribit = their figure as reported; ours = our rule applied to it */
+  .tag { font-size: 10px; letter-spacing: .1em; margin-left: 6px; cursor: help; border-bottom: 1px dotted transparent; }
+  .tag.src { color: var(--dim); }
+  .tag.ours { color: var(--amber); opacity: .85; }
+  .tag:hover, .tag:focus-visible { border-bottom-color: currentColor; }
   .vol-legend { color: var(--dim); }
   .vol-chart { margin-top: 8px; }
   .vol-chart[hidden] { display: none; }
   .vol-chart-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 16px; }
   .vol-chart-head b { color: var(--green); font-weight: 600; margin-right: 4px; }
+  .vol-chart-head .lbl[data-tip] { cursor: help; }
+  .vol-chart-head .lbl[data-tip] > span:first-child { border-bottom: 1px dotted var(--dim); }
   .sw { display: inline-block; width: 14px; height: 0; margin: 0 5px 3px 0; border-top: 2px solid var(--green); vertical-align: middle; }
   .sw.rv { border-top: 2px dashed var(--mid); }
   .vol-chart-body { display: flex; gap: 6px; margin-top: 3px; }
@@ -173,7 +177,6 @@
   .vol-chart path.dot { stroke-width: 6; stroke-linecap: round; stroke-dasharray: none; filter: none; }
   .vol-chart .mid { stroke: rgba(26, 127, 60, .4); stroke-width: 1; vector-effect: non-scaling-stroke; }
   .vc-x { display: flex; justify-content: space-between; margin-left: calc(4ch + 6px); color: var(--dim); font-size: 10px; }
-  .vol-legend .tag { margin-left: 0; margin-right: 2px; }
   .vol-band { font-size: 18px; font-weight: 600; letter-spacing: .1em; line-height: 1.2; text-shadow: var(--glow); }
   .vol-band.rich { color: var(--amber); text-shadow: 0 0 6px rgba(255, 176, 0, .3); }
   .vol-track { position: relative; height: 5px; margin: 5px 0 4px; border: 1px solid var(--dim); }
@@ -193,7 +196,7 @@
     flex: 1;
     min-height: 260px;
     display: grid;
-    grid-template-columns: minmax(0, 720px) minmax(240px, 380px);
+    grid-template-columns: minmax(0, 720px);
     grid-template-rows: minmax(0, 1fr);
     gap: 16px;
     align-items: start;
@@ -260,6 +263,8 @@
     border-bottom: var(--hair);
   }
   tr.sec th small { font-size: 11px; font-weight: 400; letter-spacing: .04em; color: var(--dim); margin-left: 10px; }
+  tr.sec th[data-tip] { cursor: help; }
+  tr.sec th[data-tip] > span { border-bottom: 1px dotted var(--dim); }
 
   /* chance of triggering: a bar you can read at a glance, then the number */
   td.ch { width: 34%; }
@@ -288,23 +293,24 @@
 
   /* ---- guide ---- */
   .guide {
-    max-height: 100%;
+    position: fixed;
+    top: 48px;
+    right: 16px;
+    z-index: 60;
+    width: min(400px, calc(100vw - 32px));
+    max-height: calc(100dvh - 64px);
     overflow: auto;
-    border: var(--hair);
-    padding: 8px 12px 10px;
+    padding: 8px 14px 12px;
+    background: var(--bg);
+    border: 1px solid var(--green);
+    box-shadow: 0 0 18px rgba(51, 255, 102, .18);
     font-size: 12px;
     line-height: 1.55;
   }
-  .guide summary {
-    cursor: pointer;
-    list-style: none;
-    font-weight: 600;
-    letter-spacing: .12em;
-    text-shadow: var(--glow);
-  }
-  .guide summary::-webkit-details-marker { display: none; }
-  .guide summary::before { content: "[+] "; color: var(--dim); }
-  .guide[open] summary::before { content: "[-] "; }
+  .guide[hidden] { display: none; }
+  .guide-head { display: flex; justify-content: space-between; font-weight: 600; letter-spacing: .12em; text-shadow: var(--glow); }
+  .guide-head .linkish { background: none; border: 0; height: auto; padding: 0 4px; font: inherit; color: var(--dim); cursor: pointer; }
+  .guide-head .linkish:hover { color: var(--green); background: none; }
   .guide h2 { margin: 12px 0 2px; font-size: 12px; font-weight: 600; letter-spacing: .1em; }
   .guide h2 small { font-size: 11px; font-weight: 400; letter-spacing: .04em; color: var(--dim); margin-left: 6px; }
   .guide p { margin: 0 0 4px; color: var(--mid); }
@@ -336,9 +342,7 @@
   /* Narrow screens: one column, the whole page scrolls, guide starts folded above the table. */
   @media (max-width: 900px) {
     body { height: auto; min-height: 100dvh; padding: 10px 10px 8px; font-size: 12px; }
-    .tagline { display: none; }
     .main { display: flex; flex-direction: column; align-items: stretch; flex: none; gap: 10px; }
-    .guide { order: -1; max-height: none; }
     .vol-cells { grid-template-columns: 1fr; gap: 8px; }
     .chain { max-height: none; }
     th, td { padding: 4px 6px; }
@@ -354,8 +358,8 @@
 
 <header class="head">
   <h1>[ CRYPTO OPTION DATA ]</h1>
-  <span class="tagline">odds, IV and delta for SOL and BTC option strikes</span>
   <nav class="links" aria-label="Links">
+    <button type="button" class="linkish" id="guide-btn" aria-expanded="false" aria-controls="guide">how to read</button>
     <a href="https://x.com/richardkingxyz" target="_blank" rel="noopener" aria-label="@richardkingxyz on X">x: @richardkingxyz</a>
   </nav>
 </header>
@@ -380,39 +384,36 @@
 </div>
 
 <div class="log">
-  <div id="status" role="status" aria-live="polite"></div>
-  <div id="note"></div>
+  <div id="status" role="status" aria-live="polite" tabindex="0" data-tip="status" aria-describedby="tip"></div>
   <div id="err" role="alert"></div>
 </div>
 
 <section class="vol" id="vol" hidden aria-labelledby="vol-h">
   <div class="vol-head">
     <span id="vol-h" tabindex="0" data-tip="vol" aria-describedby="tip"><span>[ VOL CONTEXT ]</span></span>
-    <span class="vol-legend"><span class="tag raw">raw</span>= Deribit's figure as reported &nbsp;<span class="tag derived">derived</span>= our rule applied to raw figures</span>
   </div>
   <div class="vol-cells" id="vol-cells">
     <div>
-      <div class="lbl">[ MARKET VS REALITY ]<span class="tag raw">raw</span></div>
+      <div class="lbl">[ MARKET VS REALITY ]<span class="tag src" tabindex="0" data-tip="src-deribit" aria-describedby="tip">deribit</span></div>
       <div class="vol-kv"><span id="vol-iv-lbl">pricing</span><b id="vol-iv">--</b></div>
       <div class="vol-kv"><span>actual</span><b id="vol-rv">--</b></div>
       <div class="vol-kv"><span>gap</span><b id="vol-spread">--</b></div>
     </div>
     <div>
-      <div class="lbl">[ VS RECENT HISTORY ]<span class="tag derived">derived</span></div>
+      <div class="lbl">[ RECENT HISTORY ]<span class="tag ours" tabindex="0" data-tip="src-ours" aria-describedby="tip">ours</span></div>
       <div class="vol-track" id="vol-track" aria-hidden="true"><i id="vol-marker"></i></div>
       <div class="vol-sub" id="vol-where"></div>
     </div>
     <div>
-      <div class="lbl">[ WHAT THIS MEANS ]<span class="tag derived">derived</span></div>
+      <div class="lbl">[ WHAT THIS MEANS ]<span class="tag ours" tabindex="0" data-tip="src-ours" aria-describedby="tip">ours</span></div>
       <div class="vol-band" id="vol-band">--</div>
       <div class="vol-meaning" id="vol-meaning"></div>
     </div>
   </div>
   <div class="vol-chart" id="vol-chart" hidden>
     <div class="vol-chart-head">
-      <span class="lbl">[ OVER TIME ]<span class="tag raw">raw</span></span>
-      <span class="vol-legend"><i class="sw iv"></i>pricing: IV at the strike nearest spot, date nearest 30 days out <b id="vc-iv"></b>
-        &nbsp;<i class="sw rv"></i>actual: realized vol <b id="vc-rv"></b></span>
+      <span class="lbl" tabindex="0" data-tip="chart" aria-describedby="tip"><span>[ OVER TIME ]</span><span class="tag src">deribit</span></span>
+      <span class="vol-legend"><i class="sw iv"></i>pricing <b id="vc-iv"></b> &nbsp;<i class="sw rv"></i>actual <b id="vc-rv"></b></span>
     </div>
     <div class="vol-chart-body">
       <div class="vc-y"><span id="vc-y1"></span><span id="vc-y0"></span></div>
@@ -431,36 +432,34 @@
     </table>
   </div>
 
-  <details class="guide" id="guide" open>
-    <summary>HOW TO READ THIS</summary>
+  <div class="guide" id="guide" hidden role="dialog" aria-labelledby="guide-h">
+    <div class="guide-head"><span id="guide-h">[ HOW TO READ THIS ]</span><button type="button" class="linkish" id="guide-close" aria-label="Close">x</button></div>
 
     <h2>SELL HIGHER <small>covered call</small></h2>
     <p>You hold <span data-asset-name>SOL</span> and pick a price above spot.</p>
     <dl>
       <dt>triggers</dt><dd>your <span data-asset-name>SOL</span> is sold at that price.</dd>
-      <dt>doesn't</dt><dd>you keep your <span data-asset-name>SOL</span>.</dd>
+      <dt>doesn't</dt><dd>you keep it.</dd>
     </dl>
 
     <h2>BUY LOWER <small>cash-secured put</small></h2>
     <p>You hold USDC and pick a price below spot.</p>
     <dl>
       <dt>triggers</dt><dd>you buy <span data-asset-name>SOL</span> at that price.</dd>
-      <dt>doesn't</dt><dd>you keep your USDC.</dd>
+      <dt>doesn't</dt><dd>you keep the USDC.</dd>
     </dl>
 
     <h2>CHANCE OF TRIGGERING</h2>
-    <p>The option's delta shown as a percentage: a rough guide to the odds that
-       <span data-asset-name>SOL</span> is past your price on expiry day. The further a price is
-       from spot, the lower the odds, and the smaller the premium.</p>
-    <p class="warn">Not a limit order: only the price on expiry day counts. Touching it earlier does nothing.</p>
+    <p>The option's delta as a percentage: a rough guide to the odds that
+       <span data-asset-name>SOL</span> is past your price on expiry day.</p>
+    <p class="warn">Not a limit order: only the expiry-day price counts.</p>
 
-    <h2>EITHER WAY</h2>
-    <p>You keep the premium you were paid upfront.</p>
-  </details>
+    <p>Either way you keep the premium.</p>
+  </div>
 </div>
 
 <footer>
-  <span>source: deribit.com // reference market data. premiums on any platform will differ. not a recommendation.</span>
+  <span>source: deribit.com // premiums on other platforms differ // not a recommendation</span>
   <span id="version"></span>
 </footer>
 
@@ -471,7 +470,7 @@
   'use strict';
 
   // Bump both when the page changes; they show in the bottom-right corner.
-  const VERSION = '1.6';
+  const VERSION = '1.7';
   const UPDATED = '2026-10-01';
 
   const API = 'https://www.deribit.com/api/v2/public/';
@@ -516,6 +515,20 @@
       tip: a => `How much the option's price moves per $1 move in ${a}. Also a rough guide to the odds of triggering, which is what the Chance column shows. Negative for Buy Lower, because those gain when the price falls.` },
   ];
   const TIPS = Object.fromEntries(COLS.map(c => [c.key, c]));
+  TIPS.status = { name: 'Which strikes', tip: () =>
+    `Strikes at least ${fmtShare(RULES.minGap)} from spot, out to where the premium gets too thin; longer dates reach further. ` +
+    'Every number in the ladder is Deribit\'s.' };
+  TIPS['src-deribit'] = { name: 'Deribit', tip: () => "Deribit's figure, as reported." };
+  TIPS['src-ours'] = { name: 'Ours', tip: () => 'Our rule applied to Deribit\'s figures. A reading, not a fact.' };
+  TIPS.chart = { name: 'Over time', tip: () =>
+    'Recorded four times a day since 01 Oct 2026. Pricing is Deribit\'s IV at the strike nearest spot, for the date closest ' +
+    'to 30 days out. Actual is Deribit\'s realized volatility. Nothing is recalculated.' };
+  TIPS.sell = { name: 'Sell higher', tip: a =>
+    `A covered call: you hold ${a} and pick a price above spot. If ${a} is past it on expiry day, your ${a} is sold at that price; ` +
+    `if not, you keep it. Either way you keep the premium.` };
+  TIPS.buy = { name: 'Buy lower', tip: a =>
+    `A cash-secured put: you hold USDC and pick a price below spot. If ${a} is past it on expiry day, you buy ${a} at that price; ` +
+    `if not, you keep the USDC. Either way you keep the premium.` };
   TIPS.vol = { name: 'Vol context', tip: a =>
     'Premiums rise and fall with how much movement the market expects. When expectations are high, you get ' +
     `paid more for the same strike. This compares what the market is paying for against how much ${a} has ` +
@@ -525,8 +538,9 @@
   const $ = id => document.getElementById(id);
   const el = {
     assets: $('assets'), expiry: $('expiry'), index: $('index'), refresh: $('refresh'),
-    status: $('status'), note: $('note'), err: $('err'),
-    chain: $('chain'), thead: $('thead'), tbody: $('tbody'), tip: $('tip'), guide: $('guide'),
+    status: $('status'), err: $('err'),
+    chain: $('chain'), thead: $('thead'), tbody: $('tbody'), tip: $('tip'),
+    guide: $('guide'), guideBtn: $('guide-btn'), guideClose: $('guide-close'),
     vol: $('vol'), volCells: $('vol-cells'), volBand: $('vol-band'), volTrack: $('vol-track'), volMarker: $('vol-marker'),
     volWhere: $('vol-where'), volIv: $('vol-iv'), volIvLbl: $('vol-iv-lbl'), volRv: $('vol-rv'), volSpread: $('vol-spread'),
     volMeaning: $('vol-meaning'), volLoading: $('vol-loading'),
@@ -676,10 +690,6 @@
       el.chain.hidden = true;
     }
     el.chain.classList.add('stale');
-    el.note.innerHTML =
-      `<span class="tag raw">raw</span>every number in the ladder is Deribit's &nbsp; ` +
-      `<span class="tag derived">derived</span>which strikes appear: at least ${fmtShare(RULES.minGap)} from spot, ` +
-      `out to where the premium gets too thin; longer dates reach further.`;
 
     loadVol(asset, force);
 
@@ -775,7 +785,7 @@
       if (!rows.length) {
         state.chain = null;
         el.chain.hidden = true;
-        setStatus(`no strikes to show / expires ${fmtDate(expiry)} 08:00 UTC`);
+        setStatus(`no strikes to show · expires ${fmtDate(expiry)} 08:00 UTC`);
         showError(`no ${asset} strikes clear the cut-off for this date. Pick another expiration date.`, '--');
         return;
       }
@@ -790,8 +800,8 @@
       centerOnSpot();
 
       const time = new Date().toLocaleTimeString([], { hour12: false });
-      const range = `$${fmtStrike(rows[rows.length - 1].strike)} to $${fmtStrike(rows[0].strike)}`;
-      setStatus(`${rows.length} prices, ${range} / expires ${fmtDate(expiry)} 08:00 UTC / updated ${time}`);
+      const range = `$${fmtStrike(rows[rows.length - 1].strike)}-$${fmtStrike(rows[0].strike)}`;
+      setStatus(`${rows.length} strikes · ${range} · expires ${fmtDate(expiry)} 08:00 UTC · updated ${time}`);
       const blank = rows.filter(r => !r.q).length;
       if (blank) {
         showError(`${blank} of ${rows.length} quotes failed to load and show as ${NA}. Hit refresh to retry. (${firstErr.message})`);
@@ -800,7 +810,7 @@
       if (e.name === 'AbortError' || signal.aborted) return;
       console.error(e);
       // any old rows stay dimmed so stale numbers aren't mistaken for live ones
-      setStatus(state.chain ? 'load failed / dimmed rows are from the last successful load' : 'load failed');
+      setStatus(state.chain ? 'load failed · dimmed rows are from the last successful load' : 'load failed');
       showError(e.message || String(e));
     } finally {
       if (inflight === ctl) inflight = null;
@@ -861,7 +871,7 @@
 
       let history = null;   // { label, percentile, days } or { recording, days, since }
       if (dvol.length >= 20) {
-        history = percentileOf(dvol.map(c => c[4]), dvol[0][0], dvol[dvol.length - 1][0], `${asset} vol index (DVOL)`);
+        history = percentileOf(dvol.map(c => c[4]), dvol[0][0], dvol[dvol.length - 1][0], 'DVOL');
       } else {
         const mine = series.filter(p => isNum(p.iv) && p.t >= now - VOL_WINDOW_DAYS * 864e5);
         const span = mine.length ? (mine[mine.length - 1].t - mine[0].t) / 864e5 : 0;
@@ -925,9 +935,9 @@
   }
 
   const BAND = {
-    RICH: 'the market is paying for more movement than has actually happened. the same strike pays more than usual: a good window to sell.',
-    NORMAL: 'the market is paying for about as much movement as has actually happened. premiums are around their usual level.',
-    CHEAP: 'the market is paying for less movement than has actually happened. premiums are thin: the same strike pays less than usual.',
+    RICH: 'paid more than usual for the same strike',
+    NORMAL: 'premiums around their usual level',
+    CHEAP: 'paid less than usual for the same strike',
   };
 
   function renderVol() {
@@ -952,7 +962,7 @@
     const rich = band === 'RICH';
     el.volBand.textContent = band || NA;
     el.volBand.classList.toggle('rich', rich);
-    el.volMeaning.textContent = band ? BAND[band] : 'waiting for the ladder to load.';
+    el.volMeaning.textContent = band ? BAND[band] : '';
     el.volMeaning.classList.toggle('rich', rich);
 
     renderVolChart(v.series);
@@ -963,12 +973,12 @@
       el.volTrack.hidden = false;
       el.volMarker.style.left = h.percentile + '%';
       el.volMarker.classList.toggle('rich', h.percentile > 70);
-      el.volWhere.textContent = `${h.label} today is higher than ${h.percentile}% of the last ${h.days} days`;
+      el.volWhere.textContent = `${h.label} · above ${h.percentile}% of the last ${h.days} days`;
     } else {
       el.volTrack.hidden = true;
       el.volWhere.textContent = h && h.since
-        ? `no ready-made ${state.asset} history exists. recording Deribit's IV since ${fmtDate(h.since)}: ${h.days} of ${VOL_MIN_HISTORY_DAYS} days so far.`
-        : `no ready-made ${state.asset} history exists yet.`;
+        ? `recording since ${fmtDate(h.since).slice(0, 6)} · ${h.days}/${VOL_MIN_HISTORY_DAYS} days`
+        : 'no history yet';
     }
   }
 
@@ -1034,23 +1044,24 @@
       '</tr>';
   }
 
-  const sectionHtml = (cls, title, sub) =>
-    `<tr class="sec ${cls}"><th colspan="${COLS.length}" scope="rowgroup">${title}<small>${sub}</small></th></tr>`;
+  const sectionHtml = (cls, tip, title, sub) =>
+    `<tr class="sec ${cls}"><th colspan="${COLS.length}" scope="rowgroup" tabindex="0" data-tip="${tip}" aria-describedby="tip">` +
+    `<span>${title}</span><small>${sub}</small></th></tr>`;
 
   function render() {
     const c = state.chain;
     if (!c || !isNum(state.index)) return;
-    const spot = state.index, a = c.asset;
+    const spot = state.index;
     const above = c.rows.filter(r => r.side === 'call');
     const below = c.rows.filter(r => r.side === 'put');
     let html = '';
     if (above.length) {
-      html += sectionHtml('c', 'SELL HIGHER', `covered call // sell ${a} above spot`);
+      html += sectionHtml('c', 'sell', 'SELL HIGHER', 'covered call');
       html += above.map(r => rowHtml(r, spot)).join('');
     }
-    html += `<tr class="spot"><td colspan="${COLS.length}"><div><span>SPOT ${fmtIndex(spot)} · ${a} is trading here</span></div></td></tr>`;
+    html += `<tr class="spot"><td colspan="${COLS.length}"><div><span>SPOT ${fmtIndex(spot)}</span></div></td></tr>`;
     if (below.length) {
-      html += sectionHtml('p', 'BUY LOWER', `cash-secured put // buy ${a} below spot`);
+      html += sectionHtml('p', 'buy', 'BUY LOWER', 'cash-secured put');
       html += below.map(r => rowHtml(r, spot)).join('');
     }
     el.tbody.innerHTML = html;
@@ -1167,8 +1178,15 @@
 
   buildHead();
   $('version').textContent = `v${VERSION} // updated ${UPDATED}`;
-  // On a phone the guide starts folded so the numbers are the first thing on screen.
-  if (window.matchMedia('(max-width: 900px)').matches) el.guide.open = false;
+  function toggleGuide(open) {
+    el.guide.hidden = !open;
+    el.guideBtn.setAttribute('aria-expanded', String(open));
+  }
+  el.guideBtn.addEventListener('click', e => { e.stopPropagation(); toggleGuide(el.guide.hidden); });
+  el.guideClose.addEventListener('click', () => toggleGuide(false));
+  el.guide.addEventListener('click', e => e.stopPropagation());
+  document.addEventListener('click', () => { if (!el.guide.hidden) toggleGuide(false); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') toggleGuide(false); });
   const savedAsset = store.get('oc.asset');
   selectAsset(ASSETS[savedAsset] ? savedAsset : DEFAULT_ASSET);
   const savedExpiry = Number(store.get('oc.expiry'));
