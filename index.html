@@ -180,7 +180,7 @@
   .vc-x { display: flex; justify-content: space-between; margin-left: calc(4ch + 6px); color: var(--dim); font-size: 10px; }
   .vol-band { font-size: 18px; font-weight: 600; letter-spacing: .1em; line-height: 1.2; text-shadow: var(--glow); }
   .vol-band.rich { color: var(--amber); text-shadow: 0 0 6px rgba(255, 176, 0, .3); }
-  .vol-kv { display: flex; justify-content: space-between; max-width: 22ch; color: var(--mid); }
+  .vol-kv { display: flex; justify-content: space-between; gap: 12px; max-width: 26ch; color: var(--mid); }
   .vol-kv b { color: var(--green); font-weight: 600; }
   .vol-sub { color: var(--mid); }
   .vol-meaning { color: var(--green); line-height: 1.5; }
@@ -394,8 +394,8 @@
   <div class="vol-cells" id="vol-cells">
     <div>
       <div class="lbl"><span tabindex="0" data-tip="reality" aria-describedby="tip">[ MARKET VS REALITY ]</span><span class="tag src" tabindex="0" data-tip="src-deribit" aria-describedby="tip">deribit</span></div>
-      <div class="vol-kv"><span id="vol-iv-lbl">pricing</span><b id="vol-iv">--</b></div>
-      <div class="vol-kv"><span>actual</span><b id="vol-rv">--</b></div>
+      <div class="vol-kv"><span id="vol-iv-lbl">expected</span><b id="vol-iv">--</b></div>
+      <div class="vol-kv"><span>past 15 days</span><b id="vol-rv">--</b></div>
     </div>
     <div>
       <div class="lbl"><span tabindex="0" data-tip="band" aria-describedby="tip">[ WHAT THIS MEANS ]</span><span class="tag ours" tabindex="0" data-tip="src-ours" aria-describedby="tip">ours</span></div>
@@ -406,7 +406,7 @@
   <div class="vol-chart" id="vol-chart" hidden>
     <div class="vol-chart-head">
       <span class="lbl" tabindex="0" data-tip="chart" aria-describedby="tip"><span>[ OVER TIME ]</span><span class="tag src">deribit</span></span>
-      <span class="vol-legend"><i class="sw iv"></i>pricing &nbsp;<i class="sw rv"></i>actual</span>
+      <span class="vol-legend"><i class="sw iv"></i>expected (~30 days out) &nbsp;<i class="sw rv"></i>past 15 days</span>
     </div>
     <div class="vol-chart-body">
       <div class="vc-y"><span id="vc-y1"></span><span id="vc-y0"></span></div>
@@ -463,8 +463,8 @@
   'use strict';
 
   // Bump both when the page changes; they show in the bottom-right corner.
-  const VERSION = '1.9';
-  const UPDATED = '2026-10-01';
+  const VERSION = '1.10';
+  const UPDATED = '2026-10-02';
 
   const API = 'https://www.deribit.com/api/v2/public/';
   const CONCURRENCY = 10;
@@ -517,20 +517,21 @@
     const v = state.vol[a], c = state.chain, d = v && v.shown;
     const date = c && c.asset === a ? fmtDate(c.expiry).slice(0, 6) : 'the selected date';
     const pct = x => isNum(x) ? x + '%' : '--';
-    return `pricing ${pct(d && d.iv)}: how much movement the market is paying for until ${date}. Deribit's IV at the strike nearest spot.\n` +
-      `actual ${pct(d && d.rv)}: how much ${a} has actually been moving. Deribit's realized volatility, latest reading.`;
+    return `expected ${pct(d && d.iv)}: the movement the market is paying for between now and ${date}, as a yearly rate. Deribit's IV at the strike nearest spot.\n` +
+      `past 15 days ${pct(d && d.rv)}: how much ${a} actually moved over the last 15 days, as a yearly rate. Deribit's realized volatility.\n` +
+      'Both are yearly rates, which is what lets a short expectation and a 15-day record sit side by side.';
   } };
   TIPS.band = { name: 'What this means', tip: () =>
-    `Our reading of the gap, not Deribit's.\nRICH: pricing ${VOL_GAP_POINTS}+ points above actual. You are paid more than usual for the same strike.\n` +
-    `NORMAL: within ${VOL_GAP_POINTS} points either way. Premiums around their usual level.\n` +
-    `CHEAP: pricing ${VOL_GAP_POINTS}+ points below actual. Premiums are thin.` };
+    `Our reading of expected against the past 15 days, not Deribit's.\nRICH: expected ${VOL_GAP_POINTS}+ points higher. The market pays for more movement than has been happening, so the same strike pays more than usual.\n` +
+    `NORMAL: within ${VOL_GAP_POINTS} points either way.\n` +
+    `CHEAP: expected ${VOL_GAP_POINTS}+ points lower. Premiums are thin.` };
   TIPS.chart = { name: 'Over time', tip: a => {
     const v = state.vol[a], h = v && v.history;
     const hist = !h ? '' : h.recording
       ? `\nRecorded since ${h.since ? fmtDate(h.since) : 'today'}: ${h.days} of the ${VOL_MIN_HISTORY_DAYS} days needed before today can be placed against its recent past.`
       : `\nRecent history: ${h.label} today is above ${h.percentile}% of the last ${h.days} days.`;
-    return 'Pricing is Deribit\'s IV at the strike nearest spot for the date closest to 30 days out; actual is Deribit\'s realized ' +
-      'volatility. Recorded four times a day since 01 Oct 2026, nothing recalculated. The dots are the latest readings.' + hist;
+    return 'Expected is Deribit\'s IV at the strike nearest spot for the date closest to 30 days out; past 15 days is Deribit\'s ' +
+      'realized volatility. Recorded four times a day since 01 Oct 2026, nothing recalculated. The dots are the latest readings.' + hist;
   } };
   TIPS.sell = { name: 'Sell higher', tip: a =>
     `A covered call: you hold ${a} and pick a price above spot. If ${a} is past it on expiry day, your ${a} is sold at that price; ` +
@@ -829,7 +830,7 @@
 
   const VOL_WINDOW_DAYS = 90;      // how far back "recent history" looks
   const VOL_MIN_HISTORY_DAYS = 30; // recorded history needed before it is used for a percentile
-  const VOL_GAP_POINTS = 5;        // pricing this far above actual = RICH, this far below = CHEAP
+  const VOL_GAP_POINTS = 5;        // expected this far above the past 15 days = RICH, this far below = CHEAP
   const HISTORY_URL = 'data/history.json';
 
   // The panel above the ladder. Everything in the "market vs reality" cell is raw: Deribit's
@@ -955,12 +956,12 @@
     el.volCells.hidden = false;
     el.vol.hidden = false;
 
-    // raw: pricing vs actual
+    // deribit: expected vs past 15 days
     const c = state.chain;
     const iv = c && c.asset === state.asset && isNum(c.atmIv) ? Math.round(c.atmIv) : null;
     const rvShown = Math.round(v.realized);
     el.volIv.textContent = isNum(iv) ? iv + '%' : NA;
-    el.volIvLbl.textContent = c && c.asset === state.asset ? `pricing (${fmtDate(c.expiry).slice(0, 6)})` : 'pricing';
+    el.volIvLbl.textContent = c && c.asset === state.asset ? `expected to ${fmtDate(c.expiry).slice(0, 6)}` : 'expected';
     el.volRv.textContent = rvShown + '%';
     const gap = isNum(iv) ? iv - rvShown : null;   // the band reads this; it isn't shown, anyone can subtract
     v.shown = { iv, rv: rvShown };                  // for the tooltips
