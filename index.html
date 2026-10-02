@@ -180,7 +180,7 @@
   .vc-x { display: flex; justify-content: space-between; margin-left: calc(4ch + 6px); color: var(--dim); font-size: 10px; }
   .vol-band { font-size: 18px; font-weight: 600; letter-spacing: .1em; line-height: 1.2; text-shadow: var(--glow); }
   .vol-band.rich { color: var(--amber); text-shadow: 0 0 6px rgba(255, 176, 0, .3); }
-  .vol-kv { display: flex; justify-content: space-between; gap: 12px; max-width: 26ch; color: var(--mid); }
+  .vol-kv { display: flex; justify-content: space-between; gap: 12px; max-width: 46ch; color: var(--mid); }
   .vol-kv b { color: var(--green); font-weight: 600; }
   .vol-sub { color: var(--mid); }
   .vol-meaning { color: var(--green); line-height: 1.5; }
@@ -393,9 +393,9 @@
   </div>
   <div class="vol-cells" id="vol-cells">
     <div>
-      <div class="lbl"><span tabindex="0" data-tip="reality" aria-describedby="tip">[ MARKET VS REALITY ]</span><span class="tag src" tabindex="0" data-tip="src-deribit" aria-describedby="tip">deribit</span></div>
-      <div class="vol-kv"><span id="vol-iv-lbl">expected</span><b id="vol-iv">--</b></div>
-      <div class="vol-kv"><span>past 15 days</span><b id="vol-rv">--</b></div>
+      <div class="lbl"><span tabindex="0" data-tip="reality" aria-describedby="tip">[ VOLATILITY PREMIUM ]</span><span class="tag src" tabindex="0" data-tip="src-deribit" aria-describedby="tip">deribit</span></div>
+      <div class="vol-kv"><span id="vol-iv-lbl">implied volatility</span><b id="vol-iv">--</b></div>
+      <div class="vol-kv"><span>realized volatility in the past 15 days</span><b id="vol-rv">--</b></div>
     </div>
     <div>
       <div class="lbl"><span tabindex="0" data-tip="band" aria-describedby="tip">[ WHAT THIS MEANS ]</span><span class="tag ours" tabindex="0" data-tip="src-ours" aria-describedby="tip">ours</span></div>
@@ -406,7 +406,7 @@
   <div class="vol-chart" id="vol-chart" hidden>
     <div class="vol-chart-head">
       <span class="lbl" tabindex="0" data-tip="chart" aria-describedby="tip"><span>[ OVER TIME ]</span><span class="tag src">deribit</span></span>
-      <span class="vol-legend"><i class="sw iv"></i>expected (~30 days out) &nbsp;<i class="sw rv"></i>past 15 days</span>
+      <span class="vol-legend"><i class="sw iv"></i>implied (~30 days out) &nbsp;<i class="sw rv"></i>realized (past 15 days)</span>
     </div>
     <div class="vol-chart-body">
       <div class="vc-y"><span id="vc-y1"></span><span id="vc-y0"></span></div>
@@ -463,7 +463,7 @@
   'use strict';
 
   // Bump both when the page changes; they show in the bottom-right corner.
-  const VERSION = '1.10';
+  const VERSION = '1.11';
   const UPDATED = '2026-10-02';
 
   const API = 'https://www.deribit.com/api/v2/public/';
@@ -513,25 +513,25 @@
     'Every number in the ladder is Deribit\'s.' };
   TIPS['src-deribit'] = { name: 'Deribit', tip: () => "Deribit's figure, as reported." };
   TIPS['src-ours'] = { name: 'Ours', tip: () => 'Our rule applied to Deribit\'s figures. A reading, not a fact.' };
-  TIPS.reality = { name: 'Market vs reality', tip: a => {
+  TIPS.reality = { name: 'Volatility premium', tip: a => {
     const v = state.vol[a], c = state.chain, d = v && v.shown;
     const date = c && c.asset === a ? fmtDate(c.expiry).slice(0, 6) : 'the selected date';
     const pct = x => isNum(x) ? x + '%' : '--';
-    return `expected ${pct(d && d.iv)}: the movement the market is paying for between now and ${date}, as a yearly rate. Deribit's IV at the strike nearest spot.\n` +
-      `past 15 days ${pct(d && d.rv)}: how much ${a} actually moved over the last 15 days, as a yearly rate. Deribit's realized volatility.\n` +
-      'Both are yearly rates, which is what lets a short expectation and a 15-day record sit side by side.';
+    return `implied ${pct(d && d.iv)}: the movement the market is paying for between now and ${date}, as a yearly rate. Deribit's mark IV at the strike nearest spot.\n` +
+      `realized ${pct(d && d.rv)}: how much ${a} actually moved over the last 15 days, as a yearly rate. Deribit's realized volatility.\n` +
+      'The difference is the volatility premium: what sellers are paid over and above the movement that has been happening.';
   } };
   TIPS.band = { name: 'What this means', tip: () =>
-    `Our reading of expected against the past 15 days, not Deribit's.\nRICH: expected ${VOL_GAP_POINTS}+ points higher. The market pays for more movement than has been happening, so the same strike pays more than usual.\n` +
+    `Our reading of the volatility premium (implied minus realized), not Deribit's.\nRICH: implied ${VOL_GAP_POINTS}+ points above realized. The market pays for more movement than has been happening, so the same strike pays more than usual.\n` +
     `NORMAL: within ${VOL_GAP_POINTS} points either way.\n` +
-    `CHEAP: expected ${VOL_GAP_POINTS}+ points lower. Premiums are thin.` };
+    `CHEAP: implied ${VOL_GAP_POINTS}+ points below realized. Premiums are thin.` };
   TIPS.chart = { name: 'Over time', tip: a => {
     const v = state.vol[a], h = v && v.history;
     const hist = !h ? '' : h.recording
       ? `\nRecorded since ${h.since ? fmtDate(h.since) : 'today'}: ${h.days} of the ${VOL_MIN_HISTORY_DAYS} days needed before today can be placed against its recent past.`
       : `\nRecent history: ${h.label} today is above ${h.percentile}% of the last ${h.days} days.`;
-    return 'Expected is Deribit\'s IV at the strike nearest spot for the date closest to 30 days out; past 15 days is Deribit\'s ' +
-      'realized volatility. Recorded four times a day since 01 Oct 2026, nothing recalculated. The dots are the latest readings.' + hist;
+    return 'Implied is Deribit\'s mark IV at the strike nearest spot for the date closest to 30 days out; realized is Deribit\'s ' +
+      '15-day realized volatility. Recorded four times a day since 01 Oct 2026, nothing recalculated. The dots are the latest readings.' + hist;
   } };
   TIPS.sell = { name: 'Sell higher', tip: a =>
     `A covered call: you hold ${a} and pick a price above spot. If ${a} is past it on expiry day, your ${a} is sold at that price; ` +
@@ -541,8 +541,8 @@
     `if not, you keep the USDC. Either way you keep the premium.` };
   TIPS.vol = { name: 'Vol context', tip: a =>
     'Premiums rise and fall with how much movement the market expects. When expectations are high, you get ' +
-    `paid more for the same strike. This compares what the market is paying for against how much ${a} has ` +
-    'actually been moving, and, where a history exists, against the recent past.' };
+    `paid more for the same strike. This compares implied volatility (what the market is paying for) with realized ` +
+    `volatility (how much ${a} has actually been moving), and, where a history exists, with the recent past.` };
   const NA = '--';
 
   const $ = id => document.getElementById(id);
@@ -961,7 +961,7 @@
     const iv = c && c.asset === state.asset && isNum(c.atmIv) ? Math.round(c.atmIv) : null;
     const rvShown = Math.round(v.realized);
     el.volIv.textContent = isNum(iv) ? iv + '%' : NA;
-    el.volIvLbl.textContent = c && c.asset === state.asset ? `expected to ${fmtDate(c.expiry).slice(0, 6)}` : 'expected';
+    el.volIvLbl.textContent = c && c.asset === state.asset ? `implied volatility for ${fmtDate(c.expiry).slice(0, 6)}` : 'implied volatility';
     el.volRv.textContent = rvShown + '%';
     const gap = isNum(iv) ? iv - rvShown : null;   // the band reads this; it isn't shown, anyone can subtract
     v.shown = { iv, rv: rvShown };                  // for the tooltips
