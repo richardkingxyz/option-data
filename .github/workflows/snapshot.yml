@@ -15,9 +15,14 @@ jobs:
         with:
           node-version: 22
       - run: node scripts/snapshot.mjs
+      - run: node scripts/onchain-stats.mjs
+        env:
+          RPC_URL: ${{ secrets.RPC_URL }}
+          PROGRAM_ID: ${{ secrets.PROGRAM_ID }}
+          WORKSTATION_PASSWORD: ${{ secrets.WORKSTATION_PASSWORD }}
       - run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/history.json
+          git add data/history.json data/stats.enc
           git diff --cached --quiet || git commit -m "snapshot $(date -u +%Y-%m-%dT%H:%MZ)"
           git push

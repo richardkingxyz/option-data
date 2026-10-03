@@ -1,2 +1,5 @@
-pro/src.html
-pro/.password
+# Everything in pro/ is private (source page, password, CRM data) except the tools.
+pro/*
+!pro/lock.mjs
+!pro/crypto.mjs
+!pro/crm-build.mjs
