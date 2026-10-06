@@ -182,6 +182,10 @@
   .vol-band.rich { color: var(--amber); text-shadow: 0 0 6px rgba(255, 176, 0, .3); }
   .vol-kv { display: flex; justify-content: space-between; gap: 12px; max-width: 46ch; color: var(--mid); }
   .vol-kv b { color: var(--green); font-weight: 600; }
+  .vol-kv .pick, .vol-pick .pick { color: var(--amber); font-weight: 600; }
+  .vol-pick { margin-top: 4px; font-size: 12px; color: var(--dim); max-width: 46ch; }
+  .vol-pick .linkish { background: none; border: 0; height: auto; padding: 0; font: inherit; color: var(--green); cursor: pointer; }
+  .vol-pick .linkish:hover, .vol-pick .linkish:focus-visible { text-shadow: var(--glow); text-decoration: underline; }
   .vol-sub { color: var(--mid); }
   .vol-meaning { color: var(--green); line-height: 1.5; }
   .vol-meaning.rich { color: var(--amber); }
@@ -399,6 +403,7 @@
       <div class="lbl"><span tabindex="0" data-tip="reality" aria-describedby="tip">[ VOLATILITY PREMIUM ]</span><span class="tag src" tabindex="0" data-tip="src-deribit" aria-describedby="tip">deribit</span></div>
       <div class="vol-kv"><span id="vol-iv-lbl">implied volatility</span><b id="vol-iv">--</b></div>
       <div class="vol-kv"><span>realized volatility in the past 15 days</span><b id="vol-rv">--</b></div>
+      <div class="vol-pick" id="vol-pick"></div>
     </div>
     <div>
       <div class="lbl"><span tabindex="0" data-tip="band" aria-describedby="tip">[ WHAT THIS MEANS ]</span><span class="tag ours" tabindex="0" data-tip="src-ours" aria-describedby="tip">ours</span></div>
@@ -466,7 +471,7 @@
   'use strict';
 
   // Bump both when the page changes; they show in the bottom-right corner.
-  const VERSION = '1.13';
+  const VERSION = '1.14';
   const UPDATED = '2026-10-06';
 
   const API = 'https://www.deribit.com/api/v2/public/';
@@ -558,7 +563,7 @@
     chain: $('chain'), thead: $('thead'), tbody: $('tbody'), tip: $('tip'),
     guide: $('guide'), guideBtn: $('guide-btn'), guideClose: $('guide-close'),
     vol: $('vol'), volCells: $('vol-cells'), volBand: $('vol-band'), volIv: $('vol-iv'), volIvLbl: $('vol-iv-lbl'), volRv: $('vol-rv'),
-    volMeaning: $('vol-meaning'), volLoading: $('vol-loading'),
+    volMeaning: $('vol-meaning'), volLoading: $('vol-loading'), volPick: $('vol-pick'),
     volChart: $('vol-chart'), volSvg: $('vol-svg'),
     vcY0: $('vc-y0'), vcY1: $('vc-y1'), vcX0: $('vc-x0'), vcXn: $('vc-xn'), vcX1: $('vc-x1'),
   };
@@ -975,8 +980,15 @@
     const iv = strike !== null ? Math.round(picked.q.iv) : same && isNum(c.atmIv) ? Math.round(c.atmIv) : null;
     const rvShown = Math.round(v.realized);
     el.volIv.textContent = isNum(iv) ? iv + '%' : NA;
-    el.volIvLbl.textContent = same ? `implied volatility at ${strike !== null ? "$" + fmtStrike(strike) : "spot"}, ${fmtDate(c.expiry).slice(0, 6)}` : 'implied volatility';
+    const dateLbl = same ? fmtDate(c.expiry).slice(0, 6) : '';
+    el.volIvLbl.innerHTML = same ? `implied volatility at ${strike !== null ? `<span class="pick">$${fmtStrike(strike)}</span>` : 'spot'}, ${dateLbl}` : 'implied volatility';
     el.volRv.textContent = rvShown + '%';
+    // say what the panel is reading and how to move it; the row only hints with a highlight
+    const pinned = strike !== null && state.pin === strike;
+    el.volPick.innerHTML = !same ? '' : pinned
+      ? `reading the ladder at <span class="pick">$${fmtStrike(strike)}</span> · <button type="button" class="linkish" id="vol-release">[ back to spot ]</button>`
+      : strike !== null ? `previewing $${fmtStrike(strike)} · ${TAP} the row to keep it`
+      : `reading at spot · ${TAP} any strike in the ladder to read the panel there`;
     const gap = isNum(iv) ? iv - rvShown : null;   // the band reads this; it isn't shown, anyone can subtract
     v.shown = { iv, rv: rvShown, strike };          // for the tooltips
 
@@ -992,6 +1004,7 @@
     if (chartDrawnFor !== v.series) { renderVolChart(v.series); chartDrawnFor = v.series; }
   }
   let chartDrawnFor = null;
+  const TAP = matchMedia('(hover: none)').matches ? 'tap' : 'click';
 
   // Is this strike still worth offering? The premium, as a yearly rate on what you'd
   // lock up (the coin for a call, the cash for a put), has to clear the asset's floor,
@@ -1192,13 +1205,16 @@
     if (k !== null && e.pointerType === 'mouse' && k !== state.focus) { state.focus = k; renderVol(); }
   });
   el.tbody.addEventListener('pointerleave', () => { if (state.focus !== null) { state.focus = null; renderVol(); } });
+  function setPin(k) {
+    state.pin = k;
+    for (const tr of el.tbody.querySelectorAll('tr[data-strike]')) tr.classList.toggle('pin', Number(tr.dataset.strike) === k);
+    renderVol();
+  }
   el.tbody.addEventListener('click', e => {
     const k = rowStrike(e);
-    if (k === null) return;
-    state.pin = state.pin === k ? null : k;
-    for (const tr of el.tbody.querySelectorAll('tr[data-strike]')) tr.classList.toggle('pin', Number(tr.dataset.strike) === state.pin);
-    renderVol();
+    if (k !== null) setPin(state.pin === k ? null : k);
   });
+  el.volPick.addEventListener('click', e => { if (e.target.closest('#vol-release')) { state.focus = null; setPin(null); } });
 
   setInterval(() => { if (!document.hidden) refreshIndex(); }, INDEX_POLL_MS);
 
