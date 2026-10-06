@@ -11,7 +11,9 @@
 //   premium_gross   what the buyer paid (the OptionCreated.premium field)
 //   premium_net     what reached the seller: gross minus the protocol's premium fee
 //   notional        size x the asset's price at the moment of sale (Deribit hourly candle)
-//   apr             premium_gross / notional x 365 / days to expiry
+//   collateral_usd  what the seller locked: the asset at the price at sale for calls,
+//                   the USDC itself for puts
+//   apr             the seller's return: premium_net / collateral_usd x 365 / days to expiry
 //   payouts / fees  are denominated in the COLLATERAL token (asset for calls, USDC for
 //                   puts) and are converted to USD at the price on the day
 
@@ -136,8 +138,9 @@ for (const e of events) {
   const asset = pairAsset.get(createPair.get(e.sig)) ?? (e.strike > 1e9 ? 'BTC' : 'SOL');
   const size = e.size / 10 ** DECIMALS[asset], strike = e.strike / QUOTE, premium = e.premium / QUOTE;
   const spot = priceAt(asset, e.t * 1000), days = (e.expiry - e.t) / 86400, notional = size * spot;
+  const collateral_usd = e.otype === 'Call' ? e.collateral / 10 ** DECIMALS[asset] * spot : e.collateral / QUOTE;
   opts.set(key(e), { seller: e.seller, buyer: e.buyer, option_id: e.option_id, asset, otype: e.otype, size, strike, spot, premium_gross: premium, fee: 0, settle_fee_usd: 0,
-    created: e.t, expiry: e.expiry, days, notional, apr: notional > 0 && days > 0 ? premium / notional * 365 / days * 100 : null,
+    created: e.t, expiry: e.expiry, days, notional, collateral_usd,
     outcome: null, settlement_price: null, buyer_payout_usd: 0, settled_at: null, withdrawn_at: null });
 }
 const bySig = new Map();
@@ -162,7 +165,8 @@ for (const e of events) {
     if (o) o.withdrawn_at = e.withdrawn_at;
   }
 }
-const L = [...opts.values()].map(o => ({ ...o, premium_net: o.premium_gross - o.fee }));
+// apr waits until here because it is on the net premium, and the fee arrives in its own event
+const L = [...opts.values()].map(o => { const premium_net = o.premium_gross - o.fee; return { ...o, premium_net, apr: o.collateral_usd > 0 && o.days > 0 ? premium_net / o.collateral_usd * 365 / o.days * 100 : null }; });
 
 // --- 7. statistics ---
 const sum = (a, f) => a.reduce((s, x) => s + f(x), 0);

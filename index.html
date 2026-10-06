@@ -250,6 +250,8 @@
   td.na { color: var(--dim) !important; text-shadow: none !important; }
 
   tbody tr.c:not(.sec):hover td, tbody tr.p:not(.sec):hover td { background: rgba(51, 255, 102, .08); }
+  tbody tr[data-strike] { cursor: pointer; }
+  tbody tr.pin td { background: rgba(51, 255, 102, .12); box-shadow: inset 3px 0 0 var(--amber); }
 
   /* section label rows: which side of the market these prices belong to */
   tr.sec th {
@@ -464,8 +466,8 @@
   'use strict';
 
   // Bump both when the page changes; they show in the bottom-right corner.
-  const VERSION = '1.12';
-  const UPDATED = '2026-10-03';
+  const VERSION = '1.13';
+  const UPDATED = '2026-10-06';
 
   const API = 'https://www.deribit.com/api/v2/public/';
   const CONCURRENCY = 10;
@@ -504,7 +506,7 @@
     { key: 'chance', label: 'CHANCE OF TRIGGERING', name: 'Chance of triggering', cls: 'ch',
       tip: a => `Roughly how likely your sale or purchase goes through. This is the option's delta shown as a percentage, which traders use as a rough guide to the odds that ${a} is past this price at expiry. A market estimate, not a prediction.` },
     { key: 'iv', label: 'IV', name: 'IV',
-      tip: () => "How much movement the market expects. On its own this number means little. What matters is whether it's high or low compared to normal, which is what the panel above shows." },
+      tip: () => "How much movement the market expects at this strike. On its own this number means little. What matters is whether it's high or low compared to what has been happening: point at the row and the panel above compares it with realized." },
     { key: 'delta', label: 'DELTA', name: 'Delta',
       tip: a => `How much the option's price moves per $1 move in ${a}. Also a rough guide to the odds of triggering, which is what the Chance column shows. Negative for Buy Lower, because those gain when the price falls.` },
   ];
@@ -518,14 +520,17 @@
     const v = state.vol[a], c = state.chain, d = v && v.shown;
     const date = c && c.asset === a ? fmtDate(c.expiry).slice(0, 6) : 'the selected date';
     const pct = x => isNum(x) ? x + '%' : '--';
-    return `implied ${pct(d && d.iv)}: the movement the market is paying for between now and ${date}, as a yearly rate. Deribit's mark IV at the strike nearest spot.\n` +
+    const at = d && isNum(d.strike) ? `at $${fmtStrike(d.strike)}, the strike you picked` : 'at the strike nearest spot';
+    return `implied ${pct(d && d.iv)}: the movement the market is paying for between now and ${date}, as a yearly rate. Deribit's mark IV ${at}.\n` +
       `realized ${pct(d && d.rv)}: how much ${a} actually moved over the last 15 days, as a yearly rate. Deribit's realized volatility.\n` +
-      'The difference is the volatility premium: what sellers are paid over and above the movement that has been happening.';
+      'The difference is the volatility premium: what sellers are paid over and above the movement that has been happening.\n' +
+      'Point at a strike in the ladder and this follows it; click to keep it. Strikes further from spot usually carry a higher IV, so judge the strike you would actually sell.';
   } };
-  TIPS.band = { name: 'What this means', tip: () =>
-    `Our reading of the volatility premium (implied minus realized), not Deribit's.\nRICH: implied ${VOL_GAP_POINTS}+ points above realized. The market pays for more movement than has been happening, so the same strike pays more than usual.\n` +
+  TIPS.band = { name: 'What this means', tip: a =>
+    `Our reading of the volatility premium (implied minus realized) at the strike shown above, not Deribit's.\nRICH: implied ${VOL_GAP_POINTS}+ points above realized. The market pays for more movement than has been happening, so the same strike pays more than usual.\n` +
     `NORMAL: within ${VOL_GAP_POINTS} points either way.\n` +
-    `CHEAP: implied ${VOL_GAP_POINTS}+ points below realized. Premiums are thin.` };
+    `CHEAP: implied ${VOL_GAP_POINTS}+ points below realized. Premiums are thin.\n` +
+    `Far from spot, part of the extra IV is fair payment for the big sudden moves ${a} makes more often than a smooth model allows. That part is the price of a real risk, not free premium.` };
   TIPS.chart = { name: 'Over time', tip: a => {
     const v = state.vol[a], h = v && v.history;
     const hist = !h ? '' : h.recording
@@ -570,6 +575,8 @@
     instruments: {},     // asset -> { at, list }
     chain: null,         // { asset, expiry, rows }
     vol: {},             // asset -> vol history (see loadVol), cached for the session
+    focus: null,         // strike under the pointer: the vol panel reads that row's IV
+    pin: null,           // strike the reader clicked, kept until clicked again or the view changes
   };
 
   // ---------- formatting ----------
@@ -750,6 +757,7 @@
       // Keep the old rows (dimmed) on a plain refresh; drop them when the view changed.
       if (!state.chain || state.chain.expiry !== expiry) {
         state.chain = null;
+        state.pin = state.focus = null;
         el.chain.hidden = true;
       }
 
@@ -957,15 +965,20 @@
     el.volCells.hidden = false;
     el.vol.hidden = false;
 
-    // deribit: expected vs past 15 days
+    // deribit: expected vs past 15 days. The implied figure is the IV of the strike the
+    // reader pinned or is pointing at (sellers sell away from spot, where IV differs);
+    // with no strike picked it is the strike nearest spot.
     const c = state.chain;
-    const iv = c && c.asset === state.asset && isNum(c.atmIv) ? Math.round(c.atmIv) : null;
+    const same = c && c.asset === state.asset;
+    const picked = same ? c.rows.find(r => r.strike === state.pin) || c.rows.find(r => r.strike === state.focus) : null;
+    const strike = picked && picked.q && isNum(picked.q.iv) ? picked.strike : null;
+    const iv = strike !== null ? Math.round(picked.q.iv) : same && isNum(c.atmIv) ? Math.round(c.atmIv) : null;
     const rvShown = Math.round(v.realized);
     el.volIv.textContent = isNum(iv) ? iv + '%' : NA;
-    el.volIvLbl.textContent = c && c.asset === state.asset ? `implied volatility for ${fmtDate(c.expiry).slice(0, 6)}` : 'implied volatility';
+    el.volIvLbl.textContent = same ? `implied volatility at ${strike !== null ? "$" + fmtStrike(strike) : "spot"}, ${fmtDate(c.expiry).slice(0, 6)}` : 'implied volatility';
     el.volRv.textContent = rvShown + '%';
     const gap = isNum(iv) ? iv - rvShown : null;   // the band reads this; it isn't shown, anyone can subtract
-    v.shown = { iv, rv: rvShown };                  // for the tooltips
+    v.shown = { iv, rv: rvShown, strike };          // for the tooltips
 
     // derived: the band follows the gap
     const band = !isNum(gap) ? null : gap >= VOL_GAP_POINTS ? 'RICH' : gap <= -VOL_GAP_POINTS ? 'CHEAP' : 'NORMAL';
@@ -975,9 +988,10 @@
     el.volMeaning.textContent = band ? BAND[band] : '';
     el.volMeaning.classList.toggle('rich', rich);
 
-    renderVolChart(v.series);
-
+    // the chart only depends on the history, so pointing along the ladder doesn't redraw it
+    if (chartDrawnFor !== v.series) { renderVolChart(v.series); chartDrawnFor = v.series; }
   }
+  let chartDrawnFor = null;
 
   // Is this strike still worth offering? The premium, as a yearly rate on what you'd
   // lock up (the coin for a call, the cash for a put), has to clear the asset's floor,
@@ -1032,7 +1046,7 @@
     const chance = isNum(q.chance)
       ? `<td class="ch"><div><span class="meter" aria-hidden="true"><i style="width:${q.chance}%"></i></span><b>${q.chance}%</b></div></td>`
       : `<td class="ch na">${NA}</td>`;
-    return `<tr class="${r.side === 'call' ? 'c' : 'p'}">` +
+    return `<tr class="${r.side === 'call' ? 'c' : 'p'}${r.strike === state.pin ? ' pin' : ''}" data-strike="${r.strike}">` +
       `<td class="k">${fmtStrike(r.strike)}</td>` +
       cell((r.strike / spot - 1) * 100, fmtDist) +
       chance +
@@ -1157,6 +1171,7 @@
     selectAsset(b.dataset.asset);
     el.vol.hidden = true;
     state.index = null;
+    state.pin = state.focus = null;
     el.index.textContent = NA;
     load();
   });
@@ -1168,6 +1183,22 @@
   });
 
   el.refresh.addEventListener('click', () => load({ force: true }));
+
+  // The vol panel follows the ladder: point at a strike to read its IV against realized,
+  // click to keep it (click again to let go). Touch has no pointer, so tapping pins.
+  const rowStrike = e => { const tr = e.target.closest && e.target.closest('tr[data-strike]'); return tr ? Number(tr.dataset.strike) : null; };
+  el.tbody.addEventListener('pointerover', e => {
+    const k = rowStrike(e);
+    if (k !== null && e.pointerType === 'mouse' && k !== state.focus) { state.focus = k; renderVol(); }
+  });
+  el.tbody.addEventListener('pointerleave', () => { if (state.focus !== null) { state.focus = null; renderVol(); } });
+  el.tbody.addEventListener('click', e => {
+    const k = rowStrike(e);
+    if (k === null) return;
+    state.pin = state.pin === k ? null : k;
+    for (const tr of el.tbody.querySelectorAll('tr[data-strike]')) tr.classList.toggle('pin', Number(tr.dataset.strike) === state.pin);
+    renderVol();
+  });
 
   setInterval(() => { if (!document.hidden) refreshIndex(); }, INDEX_POLL_MS);
 
