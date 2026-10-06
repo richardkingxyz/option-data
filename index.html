@@ -170,7 +170,10 @@
   .sw.rv { border-top: 2px dashed var(--mid); }
   .vol-chart-body { display: flex; gap: 6px; margin-top: 3px; }
   .vc-y { display: flex; flex-direction: column; justify-content: space-between; width: 4ch; text-align: right; color: var(--dim); font-size: 10px; }
-  .vol-chart svg { flex: 1; min-width: 0; height: 96px; display: block; overflow: visible; border-top: var(--row-hair); border-bottom: var(--row-hair); }
+  .vc-plot { position: relative; flex: 1; min-width: 0; }
+  .vol-chart svg { width: 100%; height: 96px; display: block; overflow: visible; border-top: var(--row-hair); border-bottom: var(--row-hair); }
+  .vc-tag { position: absolute; font-size: 10px; font-weight: 600; line-height: 1; padding: 1px 3px; background: var(--bg); color: var(--green); pointer-events: none; }
+  .vc-tag.rv { color: var(--mid); }
   .vol-chart path { fill: none; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
   .vol-chart path.iv { stroke: var(--green); filter: drop-shadow(0 0 3px rgba(51, 255, 102, .45)); }
   .vol-chart path.rv { stroke: var(--mid); stroke-dasharray: 5 4; }
@@ -182,10 +185,7 @@
   .vol-band.rich { color: var(--amber); text-shadow: 0 0 6px rgba(255, 176, 0, .3); }
   .vol-kv { display: flex; justify-content: space-between; gap: 12px; max-width: 46ch; color: var(--mid); }
   .vol-kv b { color: var(--green); font-weight: 600; }
-  .vol-kv .pick, .vol-pick .pick { color: var(--amber); font-weight: 600; }
-  .vol-pick { margin-top: 4px; font-size: 12px; color: var(--dim); max-width: 46ch; }
-  .vol-pick .linkish { background: none; border: 0; height: auto; padding: 0; font: inherit; color: var(--green); cursor: pointer; }
-  .vol-pick .linkish:hover, .vol-pick .linkish:focus-visible { text-shadow: var(--glow); text-decoration: underline; }
+  .vol-kv .pick { color: var(--amber); font-weight: 600; }
   .vol-sub { color: var(--mid); }
   .vol-meaning { color: var(--green); line-height: 1.5; }
   .vol-meaning.rich { color: var(--amber); }
@@ -254,8 +254,6 @@
   td.na { color: var(--dim) !important; text-shadow: none !important; }
 
   tbody tr.c:not(.sec):hover td, tbody tr.p:not(.sec):hover td { background: rgba(51, 255, 102, .08); }
-  tbody tr[data-strike] { cursor: pointer; }
-  tbody tr.pin td { background: rgba(51, 255, 102, .12); box-shadow: inset 3px 0 0 var(--amber); }
 
   /* section label rows: which side of the market these prices belong to */
   tr.sec th {
@@ -403,7 +401,6 @@
       <div class="lbl"><span tabindex="0" data-tip="reality" aria-describedby="tip">[ VOLATILITY PREMIUM ]</span><span class="tag src" tabindex="0" data-tip="src-deribit" aria-describedby="tip">deribit</span></div>
       <div class="vol-kv"><span id="vol-iv-lbl">implied volatility</span><b id="vol-iv">--</b></div>
       <div class="vol-kv"><span>realized volatility in the past 15 days</span><b id="vol-rv">--</b></div>
-      <div class="vol-pick" id="vol-pick"></div>
     </div>
     <div>
       <div class="lbl"><span tabindex="0" data-tip="band" aria-describedby="tip">[ WHAT THIS MEANS ]</span><span class="tag ours" tabindex="0" data-tip="src-ours" aria-describedby="tip">ours</span></div>
@@ -414,11 +411,12 @@
   <div class="vol-chart" id="vol-chart" hidden>
     <div class="vol-chart-head">
       <span class="lbl" tabindex="0" data-tip="chart" aria-describedby="tip"><span>[ OVER TIME ]</span><span class="tag src">deribit</span></span>
-      <span class="vol-legend"><i class="sw iv"></i>implied (~30 days out) &nbsp;<i class="sw rv"></i>realized (past 15 days)</span>
+      <span class="vol-legend"><i class="sw iv"></i>IV · implied, ~30 days out &nbsp;<i class="sw rv"></i>RV · realized, past 15 days</span>
     </div>
     <div class="vol-chart-body">
       <div class="vc-y"><span id="vc-y1"></span><span id="vc-y0"></span></div>
-      <svg id="vol-svg" viewBox="0 0 1000 100" preserveAspectRatio="none" aria-hidden="true"></svg>
+      <div class="vc-plot"><svg id="vol-svg" viewBox="0 0 1000 100" preserveAspectRatio="none" aria-hidden="true"></svg>
+        <span class="vc-tag iv" id="vc-tag-iv">IV</span><span class="vc-tag rv" id="vc-tag-rv">RV</span></div>
     </div>
     <div class="vc-x"><span id="vc-x0"></span><span id="vc-xn"></span><span id="vc-x1"></span></div>
   </div>
@@ -471,7 +469,7 @@
   'use strict';
 
   // Bump both when the page changes; they show in the bottom-right corner.
-  const VERSION = '1.14';
+  const VERSION = '1.15';
   const UPDATED = '2026-10-06';
 
   const API = 'https://www.deribit.com/api/v2/public/';
@@ -525,11 +523,11 @@
     const v = state.vol[a], c = state.chain, d = v && v.shown;
     const date = c && c.asset === a ? fmtDate(c.expiry).slice(0, 6) : 'the selected date';
     const pct = x => isNum(x) ? x + '%' : '--';
-    const at = d && isNum(d.strike) ? `at $${fmtStrike(d.strike)}, the strike you picked` : 'at the strike nearest spot';
+    const at = d && isNum(d.strike) ? `at $${fmtStrike(d.strike)}, the strike under your pointer` : 'at the strike nearest spot';
     return `implied ${pct(d && d.iv)}: the movement the market is paying for between now and ${date}, as a yearly rate. Deribit's mark IV ${at}.\n` +
       `realized ${pct(d && d.rv)}: how much ${a} actually moved over the last 15 days, as a yearly rate. Deribit's realized volatility.\n` +
       'The difference is the volatility premium: what sellers are paid over and above the movement that has been happening.\n' +
-      'Point at a strike in the ladder and this follows it; click to keep it. Strikes further from spot usually carry a higher IV, so judge the strike you would actually sell.';
+      'Point at a strike in the ladder and this follows it. Strikes further from spot usually carry a higher IV, so judge the strike you would actually sell.';
   } };
   TIPS.band = { name: 'What this means', tip: a =>
     `Our reading of the volatility premium (implied minus realized) at the strike shown above, not Deribit's.\nRICH: implied ${VOL_GAP_POINTS}+ points above realized. The market pays for more movement than has been happening, so the same strike pays more than usual.\n` +
@@ -563,9 +561,9 @@
     chain: $('chain'), thead: $('thead'), tbody: $('tbody'), tip: $('tip'),
     guide: $('guide'), guideBtn: $('guide-btn'), guideClose: $('guide-close'),
     vol: $('vol'), volCells: $('vol-cells'), volBand: $('vol-band'), volIv: $('vol-iv'), volIvLbl: $('vol-iv-lbl'), volRv: $('vol-rv'),
-    volMeaning: $('vol-meaning'), volLoading: $('vol-loading'), volPick: $('vol-pick'),
+    volMeaning: $('vol-meaning'), volLoading: $('vol-loading'),
     volChart: $('vol-chart'), volSvg: $('vol-svg'),
-    vcY0: $('vc-y0'), vcY1: $('vc-y1'), vcX0: $('vc-x0'), vcXn: $('vc-xn'), vcX1: $('vc-x1'),
+    vcTagIv: $('vc-tag-iv'), vcTagRv: $('vc-tag-rv'), vcY0: $('vc-y0'), vcY1: $('vc-y1'), vcX0: $('vc-x0'), vcXn: $('vc-xn'), vcX1: $('vc-x1'),
   };
 
   const store = {
@@ -581,7 +579,6 @@
     chain: null,         // { asset, expiry, rows }
     vol: {},             // asset -> vol history (see loadVol), cached for the session
     focus: null,         // strike under the pointer: the vol panel reads that row's IV
-    pin: null,           // strike the reader clicked, kept until clicked again or the view changes
   };
 
   // ---------- formatting ----------
@@ -762,7 +759,7 @@
       // Keep the old rows (dimmed) on a plain refresh; drop them when the view changed.
       if (!state.chain || state.chain.expiry !== expiry) {
         state.chain = null;
-        state.pin = state.focus = null;
+        state.focus = null;
         el.chain.hidden = true;
       }
 
@@ -936,6 +933,12 @@
     el.volSvg.innerHTML =
       `<line class="mid" x1="0" y1="${midY}" x2="${W}" y2="${midY}"/>` +
       `<path class="rv" d="${path('rv')}"/><path class="iv" d="${path('iv')}"/>` + dot('rv') + dot('iv');
+    // name each line at its end; when the two ends sit close, the higher line is labelled above, the lower below
+    const px = (latest.t - x0) / (x1 - x0) * 100, pyIv = Number(Y(latest.iv)), pyRv = Number(Y(latest.rv));
+    const close = Math.abs(pyIv - pyRv) < 14, ivHigher = pyIv <= pyRv;
+    for (const [tag, py, dy] of [[el.vcTagIv, pyIv, !close ? '-50%' : ivHigher ? '-115%' : '15%'], [el.vcTagRv, pyRv, !close ? '-50%' : ivHigher ? '15%' : '-115%']]) {
+      tag.style.left = px + '%'; tag.style.top = py + '%'; tag.style.transform = `translate(9px, ${dy})`;
+    }
     el.vcY1.textContent = hi + '%';
     el.vcY0.textContent = lo + '%';
     el.vcX0.textContent = fmtDate(x0);
@@ -971,11 +974,11 @@
     el.vol.hidden = false;
 
     // deribit: expected vs past 15 days. The implied figure is the IV of the strike the
-    // reader pinned or is pointing at (sellers sell away from spot, where IV differs);
-    // with no strike picked it is the strike nearest spot.
+    // reader is pointing at (sellers sell away from spot, where IV differs); otherwise
+    // it is the strike nearest spot.
     const c = state.chain;
     const same = c && c.asset === state.asset;
-    const picked = same ? c.rows.find(r => r.strike === state.pin) || c.rows.find(r => r.strike === state.focus) : null;
+    const picked = same ? c.rows.find(r => r.strike === state.focus) : null;
     const strike = picked && picked.q && isNum(picked.q.iv) ? picked.strike : null;
     const iv = strike !== null ? Math.round(picked.q.iv) : same && isNum(c.atmIv) ? Math.round(c.atmIv) : null;
     const rvShown = Math.round(v.realized);
@@ -983,12 +986,6 @@
     const dateLbl = same ? fmtDate(c.expiry).slice(0, 6) : '';
     el.volIvLbl.innerHTML = same ? `implied volatility at ${strike !== null ? `<span class="pick">$${fmtStrike(strike)}</span>` : 'spot'}, ${dateLbl}` : 'implied volatility';
     el.volRv.textContent = rvShown + '%';
-    // say what the panel is reading and how to move it; the row only hints with a highlight
-    const pinned = strike !== null && state.pin === strike;
-    el.volPick.innerHTML = !same ? '' : pinned
-      ? `reading the ladder at <span class="pick">$${fmtStrike(strike)}</span> · <button type="button" class="linkish" id="vol-release">[ back to spot ]</button>`
-      : strike !== null ? `previewing $${fmtStrike(strike)} · ${TAP} the row to keep it`
-      : `reading at spot · ${TAP} any strike in the ladder to read the panel there`;
     const gap = isNum(iv) ? iv - rvShown : null;   // the band reads this; it isn't shown, anyone can subtract
     v.shown = { iv, rv: rvShown, strike };          // for the tooltips
 
@@ -1004,7 +1001,6 @@
     if (chartDrawnFor !== v.series) { renderVolChart(v.series); chartDrawnFor = v.series; }
   }
   let chartDrawnFor = null;
-  const TAP = matchMedia('(hover: none)').matches ? 'tap' : 'click';
 
   // Is this strike still worth offering? The premium, as a yearly rate on what you'd
   // lock up (the coin for a call, the cash for a put), has to clear the asset's floor,
@@ -1059,7 +1055,7 @@
     const chance = isNum(q.chance)
       ? `<td class="ch"><div><span class="meter" aria-hidden="true"><i style="width:${q.chance}%"></i></span><b>${q.chance}%</b></div></td>`
       : `<td class="ch na">${NA}</td>`;
-    return `<tr class="${r.side === 'call' ? 'c' : 'p'}${r.strike === state.pin ? ' pin' : ''}" data-strike="${r.strike}">` +
+    return `<tr class="${r.side === 'call' ? 'c' : 'p'}" data-strike="${r.strike}">` +
       `<td class="k">${fmtStrike(r.strike)}</td>` +
       cell((r.strike / spot - 1) * 100, fmtDist) +
       chance +
@@ -1184,7 +1180,7 @@
     selectAsset(b.dataset.asset);
     el.vol.hidden = true;
     state.index = null;
-    state.pin = state.focus = null;
+    state.focus = null;
     el.index.textContent = NA;
     load();
   });
@@ -1197,24 +1193,13 @@
 
   el.refresh.addEventListener('click', () => load({ force: true }));
 
-  // The vol panel follows the ladder: point at a strike to read its IV against realized,
-  // click to keep it (click again to let go). Touch has no pointer, so tapping pins.
+  // The vol panel follows the ladder: point at a strike to read its IV against realized.
   const rowStrike = e => { const tr = e.target.closest && e.target.closest('tr[data-strike]'); return tr ? Number(tr.dataset.strike) : null; };
   el.tbody.addEventListener('pointerover', e => {
     const k = rowStrike(e);
     if (k !== null && e.pointerType === 'mouse' && k !== state.focus) { state.focus = k; renderVol(); }
   });
   el.tbody.addEventListener('pointerleave', () => { if (state.focus !== null) { state.focus = null; renderVol(); } });
-  function setPin(k) {
-    state.pin = k;
-    for (const tr of el.tbody.querySelectorAll('tr[data-strike]')) tr.classList.toggle('pin', Number(tr.dataset.strike) === k);
-    renderVol();
-  }
-  el.tbody.addEventListener('click', e => {
-    const k = rowStrike(e);
-    if (k !== null) setPin(state.pin === k ? null : k);
-  });
-  el.volPick.addEventListener('click', e => { if (e.target.closest('#vol-release')) { state.focus = null; setPin(null); } });
 
   setInterval(() => { if (!document.hidden) refreshIndex(); }, INDEX_POLL_MS);
 
