@@ -41,7 +41,7 @@ async function rpc(method, params) {
     const r = await fetch(RPC, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
     if (r.status === 429 && a < 8) { await sleep(400 * 2 ** a); continue; }
     const j = await r.json();
-    if (j.error) { if (a < 5) { await sleep(600); continue; } throw new Error(JSON.stringify(j.error)); }
+    if (j.error) { if (a < 5 && j.error.code !== -32015) { await sleep(600); continue; } throw new Error(JSON.stringify(j.error)); }
     return j.result;
   }
 }
@@ -77,9 +77,24 @@ const good = sigs.filter(s => !s.err);
 console.log(`signatures: ${sigs.length} (${sigs.length - good.length} failed)`);
 
 // --- 2. logs + accounts of each successful one ---
+// Solana adds transaction versions over time (legacy, then v0, then v1 in Oct 2026) and the RPC
+// refuses any version above the one we declare, with error -32015 naming the version it needs.
+// Start at the newest we have seen and follow the RPC's suggestion, so the job survives the next one.
+let txVersion = 1;
+async function getTransaction(sig) {
+  try {
+    return await rpc('getTransaction', [sig, { encoding: 'jsonParsed', maxSupportedTransactionVersion: txVersion }]);
+  } catch (err) {
+    const m = /maxSupportedTransactionVersion\\?["']?:\s*(\d+)/.exec(err.message);
+    if (!m || Number(m[1]) <= txVersion) throw err;
+    txVersion = Number(m[1]);
+    console.log(`transaction version bumped to ${txVersion} at ${sig}`);
+    return rpc('getTransaction', [sig, { encoding: 'jsonParsed', maxSupportedTransactionVersion: txVersion }]);
+  }
+}
 const txs = [];
 for (const s of good) {
-  const tx = await rpc('getTransaction', [s.signature, { encoding: 'jsonParsed', maxSupportedTransactionVersion: 0 }]);
+  const tx = await getTransaction(s.signature);
   if (tx) txs.push({ sig: s.signature, blockTime: tx.blockTime, logs: tx.meta.logMessages ?? [], instructions: tx.transaction.message.instructions });
   await sleep(110);
 }
