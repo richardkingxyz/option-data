@@ -20,11 +20,17 @@
 //   pnl_option      the seller's result on the option alone: premium_net minus the
 //                   in-the-money amount given up on exercise (see scripts/pnl.mjs)
 //   pnl_total       pnl_option plus the coin's price move on the locked collateral
+//   spot            the asset's price at the moment of sale: Deribit's minute close for that
+//                   minute (spot_source 'minute'), or the hourly close if the minute data is
+//                   missing ('hourly'); spot_hourly keeps the hourly figure for the audit
+//   audit           per option and in stats.audit: the model checked against the chain's own
+//                   balance changes and withdrawals (see scripts/audit.mjs)
 
 import { writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { encrypt } from '../pro/crypto.mjs';
 import { pnlFields, pnlSummary } from './pnl.mjs';
+import { auditOption, auditSummary } from './audit.mjs';
 
 const RPC = process.env.RPC_URL;
 const PROGRAM = process.env.PROGRAM_ID;
@@ -37,6 +43,7 @@ const MINTS = {
   EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v: { asset: 'USDC', decimals: 6 },
 };
 const DECIMALS = { SOL: 9, BTC: 8 };
+const MINT_OF = Object.fromEntries(Object.entries(MINTS).map(([m, v]) => [v.asset, m]));
 const QUOTE = 1e6;   // USDC
 const CANDLES = { SOL: 'SOL_USDC-PERPETUAL', BTC: 'BTC-PERPETUAL' };
 
@@ -97,10 +104,23 @@ async function getTransaction(sig) {
     return rpc('getTransaction', [sig, { encoding: 'jsonParsed', maxSupportedTransactionVersion: txVersion }]);
   }
 }
+// Balance changes in a transaction, for the audit: token balances by owner and mint (token units),
+// native lamports by account. A token account opened and closed inside one transaction (wrapped SOL)
+// shows no token change, which is why the lamports are kept as well.
+function flowsOf(tx) {
+  const keys = tx.transaction.message.accountKeys.map(k => k.pubkey);
+  const token = new Map();
+  const add = (b, sign) => { if (!b.owner) return; const k = `${b.owner}|${b.mint}`; token.set(k, (token.get(k) ?? 0) + sign * Number(BigInt(b.uiTokenAmount.amount)) / 10 ** b.uiTokenAmount.decimals); };
+  for (const b of tx.meta.preTokenBalances ?? []) add(b, -1);
+  for (const b of tx.meta.postTokenBalances ?? []) add(b, 1);
+  const lamports = new Map();
+  (tx.meta.preBalances ?? []).forEach((pre, i) => { const d = (tx.meta.postBalances?.[i] ?? pre) - pre; if (d && keys[i]) lamports.set(keys[i], (lamports.get(keys[i]) ?? 0) + d); });
+  return { fee: tx.meta.fee ?? 0, feePayer: keys[0], token, lamports };
+}
 const txs = [];
 for (const s of good) {
   const tx = await getTransaction(s.signature);
-  if (tx) txs.push({ sig: s.signature, blockTime: tx.blockTime, logs: tx.meta.logMessages ?? [], instructions: tx.transaction.message.instructions });
+  if (tx) txs.push({ sig: s.signature, blockTime: tx.blockTime, logs: tx.meta.logMessages ?? [], instructions: tx.transaction.message.instructions, flows: flowsOf(tx) });
   await sleep(110);
 }
 
@@ -149,8 +169,34 @@ function priceAt(asset, ms) {
   while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (ticks[mid] <= ms) lo = mid; else hi = mid - 1; }
   return close[lo];
 }
-// the latest hourly close per asset: open options are marked here as if they expired now
-const latest = Object.fromEntries(Object.keys(CANDLES).map(a => [a, priceAt(a, Date.now())]));
+// Minute candles, one request per asset and UTC day, for the price at the moment of each sale and
+// settlement. If a day's request fails the hourly close stands in and the audit counts it.
+const minuteCache = new Map();
+async function minuteSeries(asset, dayMs) {
+  const k = `${asset}:${dayMs}`;
+  if (minuteCache.has(k)) return minuteCache.get(k);
+  let s = null;
+  for (let a = 0; a < 3 && !s; a++) {
+    try {
+      const r = await fetch(`https://www.deribit.com/api/v2/public/get_tradingview_chart_data?instrument_name=${CANDLES[asset]}&start_timestamp=${dayMs - 60e3}&end_timestamp=${dayMs + 864e5 + 60e3}&resolution=1`).then(r => r.json());
+      if (r.result && r.result.status === 'ok' && r.result.ticks.length) s = { ticks: r.result.ticks, close: r.result.close };
+      else break;
+    } catch { await sleep(500); }
+  }
+  minuteCache.set(k, s);
+  await sleep(80);
+  return s;
+}
+async function minuteCloseAt(asset, ms) {
+  const s = await minuteSeries(asset, Math.floor(ms / 864e5) * 864e5);
+  if (!s || s.ticks[0] > ms) return null;
+  let lo = 0, hi = s.ticks.length - 1;
+  while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (s.ticks[mid] <= ms) lo = mid; else hi = mid - 1; }
+  return ms - s.ticks[lo] <= 180e3 ? s.close[lo] : null;   // no candle within 3 minutes = a gap in the data
+}
+// the latest price per asset: open options are marked here as if they expired now
+const latest = {};
+for (const a of Object.keys(CANDLES)) latest[a] = (await minuteCloseAt(a, Date.now())) ?? priceAt(a, Date.now());
 
 // --- 6. assemble options ---
 const opts = new Map();
@@ -159,11 +205,15 @@ for (const e of events) {
   if (e.event !== 'OptionCreated') continue;
   const asset = pairAsset.get(createPair.get(e.sig)) ?? (e.strike > 1e9 ? 'BTC' : 'SOL');
   const size = e.size / 10 ** DECIMALS[asset], strike = e.strike / QUOTE, premium = e.premium / QUOTE;
-  const spot = priceAt(asset, e.t * 1000), days = (e.expiry - e.t) / 86400, notional = size * spot;
-  const collateral_usd = e.otype === 'Call' ? e.collateral / 10 ** DECIMALS[asset] * spot : e.collateral / QUOTE;
-  opts.set(key(e), { seller: e.seller, buyer: e.buyer, option_id: e.option_id, asset, otype: e.otype, size, strike, spot, premium_gross: premium, fee: 0, settle_fee_usd: 0,
-    created: e.t, expiry: e.expiry, days, notional, collateral_usd,
-    outcome: null, settlement_price: null, buyer_payout_usd: 0, settled_at: null, withdrawn_at: null });
+  const spot_hourly = priceAt(asset, e.t * 1000), spot_minute = await minuteCloseAt(asset, e.t * 1000);
+  const spot = spot_minute ?? spot_hourly, days = (e.expiry - e.t) / 86400, notional = size * spot;
+  const collateral_units = e.otype === 'Call' ? e.collateral / 10 ** DECIMALS[asset] : e.collateral / QUOTE;
+  const collateral_usd = e.otype === 'Call' ? collateral_units * spot : collateral_units;
+  opts.set(key(e), { seller: e.seller, buyer: e.buyer, option_id: e.option_id, asset, asset_decimals: DECIMALS[asset], otype: e.otype, size, strike, spot, spot_hourly, spot_source: spot_minute != null ? 'minute' : 'hourly',
+    premium_gross: premium, fee: 0, settle_fee_usd: 0, settle_fee_units: 0, settle_fee_asset: null,
+    created: e.t, created_sig: e.sig, expiry: e.expiry, days, notional, collateral_units, collateral_usd,
+    outcome: null, settlement_price: null, settle_market: null, buyer_payout_usd: 0, settled_at: null, settled_sig: null,
+    withdrawn_at: null, withdrawn_asset: null, withdrawn_amount: null, withdrawn_sig: null });
 }
 const bySig = new Map();
 for (const e of events) if (e.event === 'OptionCreated' || e.event.startsWith('OptionSettled') || e.event === 'OptionAdminSettled') (bySig.get(e.sig) ?? bySig.set(e.sig, []).get(e.sig)).push(e);
@@ -174,19 +224,27 @@ for (const e of events) {
     const o = sib && opts.get(key(sib));
     if (!o) continue;
     const m = MINTS[e.mint];
-    const usd = !m || m.asset === 'USDC' ? e.amount / QUOTE : e.amount / 10 ** m.decimals * priceAt(m.asset, e.t * 1000);
-    if (e.fee_type === 'Premium') o.fee += usd; else o.settle_fee_usd += usd;
+    const units = !m || m.asset === 'USDC' ? e.amount / QUOTE : e.amount / 10 ** m.decimals;
+    const usd = !m || m.asset === 'USDC' ? units : units * priceAt(m.asset, e.t * 1000);
+    if (e.fee_type === 'Premium') o.fee += usd; else { o.settle_fee_units += units; o.settle_fee_asset = m ? m.asset : 'USDC'; o.settle_fee_usd += usd; }
   } else if (e.event === 'OptionSettled' || e.event === 'OptionAdminSettled' || e.event === 'OptionForceSettled') {
     const o = opts.get(key(e));
     if (!o) continue;
-    o.outcome = e.outcome; o.settlement_price = e.settlement_price / QUOTE; o.settled_at = e.settled_at;
-    // payout is in the collateral token: the asset for calls, USDC for puts
-    o.buyer_payout_usd = o.otype === 'Call' ? e.buyer_payout / 10 ** DECIMALS[o.asset] * priceAt(o.asset, e.settled_at * 1000) : e.buyer_payout / QUOTE;
+    o.outcome = e.outcome; o.settlement_price = e.settlement_price / QUOTE; o.settled_at = e.settled_at; o.settled_sig = e.sig;
+    o.settle_market = await minuteCloseAt(o.asset, e.settled_at * 1000);
+    // payout is in the collateral token: the asset for calls, USDC for puts; valued at the program's own settlement price
+    const px = o.settlement_price > 0 ? o.settlement_price : priceAt(o.asset, e.settled_at * 1000);
+    o.buyer_payout_usd = o.otype === 'Call' ? e.buyer_payout / 10 ** DECIMALS[o.asset] * px : e.buyer_payout / QUOTE;
   } else if (e.event === 'OptionSellerWithdrawn') {
     const o = opts.get(key(e));
-    if (o) o.withdrawn_at = e.withdrawn_at;
+    if (!o) continue;
+    const m = MINTS[e.mint];
+    o.withdrawn_at = e.withdrawn_at; o.withdrawn_sig = e.sig;
+    o.withdrawn_asset = m ? m.asset : e.mint; o.withdrawn_amount = m ? e.amount / 10 ** m.decimals : null;
   }
 }
+// settlement fees taken in the coin are valued at the settlement price, like the payout they came out of
+for (const o of opts.values()) if (o.settle_fee_asset && o.settle_fee_asset !== 'USDC' && o.settlement_price > 0) o.settle_fee_usd = o.settle_fee_units * o.settlement_price;
 // apr waits until here because it is on the net premium, and the fee arrives in its own event
 // pnl comes last too: it needs premium_net and the latest price
 const L = [...opts.values()].map(o => {
@@ -195,7 +253,26 @@ const L = [...opts.values()].map(o => {
   return { ...x, ...pnlFields(x, latest[x.asset]) };
 });
 
-// --- 7. statistics ---
+// --- 7. audit: the model against the chain's own balance changes ---
+const txBySig = new Map(txs.map(t => [t.sig, t]));
+const sellerFlows = (sig, o) => {
+  const t = sig && txBySig.get(sig);
+  if (!t) return null;
+  const f = t.flows;
+  return { sellerUsdc: f.token.get(`${o.seller}|${MINT_OF.USDC}`) ?? null, sellerCoin: f.token.get(`${o.seller}|${MINT_OF[o.asset]}`) ?? null, sellerLamports: f.lamports.get(o.seller) ?? null, fee: f.fee, feePayer: f.feePayer };
+};
+for (const o of L) o.audit = auditOption(o, sellerFlows(o.created_sig, o), sellerFlows(o.withdrawn_sig, o), o.settle_market);
+const audit = auditSummary(L);
+const trunc = w => typeof w === 'string' && w.length > 20 ? w.slice(0, 6) + '…' : w;
+console.log('audit:', JSON.stringify({ ...audit, withdrawals: { ...audit.withdrawals, mismatches: audit.withdrawals.mismatches.slice(0, 3).map(m => ({ ...m, wallet: trunc(m.wallet) })) }, premium: { ...audit.premium, mismatches: audit.premium.mismatches.slice(0, 3).map(m => ({ ...m, wallet: trunc(m.wallet) })) } }));
+// one example of each flow, so the log shows what a create and a withdraw actually move
+for (const [label, field] of [['create', 'created_sig'], ['withdraw', 'withdrawn_sig']]) {
+  const o = L.find(o => o[field]); const t = o && txBySig.get(o[field]);
+  if (t) console.log(`${label} flows example (${o.asset} ${o.otype}, size ${o.size}, premium net ${o.premium_net.toFixed(4)}):`, JSON.stringify({ feePayer: trunc(t.flows.feePayer), seller: trunc(o.seller),
+    token: [...t.flows.token].filter(([, v]) => Math.abs(v) > 1e-9).map(([k, v]) => [trunc(k.split('|')[0]), MINTS[k.split('|')[1]]?.asset ?? trunc(k.split('|')[1]), +v.toFixed(6)]), lamports: [...t.flows.lamports].map(([k, v]) => [trunc(k), v]) }));
+}
+
+// --- 8. statistics ---
 const sum = (a, f) => a.reduce((s, x) => s + f(x), 0);
 const mean = a => a.length ? sum(a, x => x) / a.length : null;
 const median = a => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
@@ -221,6 +298,7 @@ const stats = {
   outcomes: Object.fromEntries(['Otm', 'ItmExercised', 'ItmForfeit', 'ForcedToSeller'].map(k => [k, settled.filter(o => o.outcome === k).length])),
   itm_payout_usd: sum(settled, o => o.buyer_payout_usd),   // collateral handed over on exercise, not the sellers' loss
   pnl: pnlSummary(L, latest),
+  audit,
   durations: { mean_days: mean(L.map(o => o.days)), median_days: median(L.map(o => o.days)), min_days: Math.min(...L.map(o => o.days)), max_days: Math.max(...L.map(o => o.days)) },
   size: { mean_notional: mean(L.map(o => o.notional)), median_notional: median(L.map(o => o.notional)), max_notional: Math.max(...L.map(o => o.notional)) },
   strike_distance_median_pct: median(L.map(o => Math.abs(o.strike / o.spot - 1) * 100)),
