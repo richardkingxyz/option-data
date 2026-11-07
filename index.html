@@ -180,7 +180,11 @@
   /* latest reading: a zero-length stroke with round caps draws a dot that ignores the stretch */
   .vol-chart path.dot { stroke-width: 6; stroke-linecap: round; stroke-dasharray: none; filter: none; }
   .vol-chart .mid { stroke: rgba(26, 127, 60, .4); stroke-width: 1; vector-effect: non-scaling-stroke; }
-  .vc-x { display: flex; justify-content: space-between; margin-left: calc(4ch + 6px); color: var(--dim); font-size: 10px; }
+  .vc-x { position: relative; height: 14px; margin-left: calc(4ch + 6px); color: var(--dim); font-size: 10px; }
+  .vc-x span { position: absolute; top: 0; white-space: nowrap; transform: translateX(-50%); }
+  .vc-x span.r { transform: translateX(-100%); }
+  .vol-chart .day { stroke: rgba(26, 127, 60, .28); stroke-width: 1; vector-effect: non-scaling-stroke; }
+  .vc-n { color: var(--dim); margin-left: 8px; }
   .vol-band { font-size: 18px; font-weight: 600; letter-spacing: .1em; line-height: 1.2; text-shadow: var(--glow); }
   .vol-band.rich { color: var(--amber); text-shadow: 0 0 6px rgba(255, 176, 0, .3); }
   .vol-kv { display: flex; justify-content: space-between; gap: 12px; max-width: 46ch; color: var(--mid); }
@@ -410,7 +414,7 @@
   </div>
   <div class="vol-chart" id="vol-chart" hidden>
     <div class="vol-chart-head">
-      <span class="lbl" tabindex="0" data-tip="chart" aria-describedby="tip"><span>[ OVER TIME ]</span><span class="tag src">deribit</span></span>
+      <span class="lbl" tabindex="0" data-tip="chart" aria-describedby="tip"><span>[ OVER TIME ]</span><span class="tag src">deribit</span><span class="vc-n" id="vc-xn"></span></span>
       <span class="vol-legend"><i class="sw iv"></i>IV · implied, ~30 days out &nbsp;<i class="sw rv"></i>RV · realized, past 15 days</span>
     </div>
     <div class="vol-chart-body">
@@ -418,7 +422,7 @@
       <div class="vc-plot"><svg id="vol-svg" viewBox="0 0 1000 100" preserveAspectRatio="none" aria-hidden="true"></svg>
         <span class="vc-tag iv" id="vc-tag-iv">IV</span><span class="vc-tag rv" id="vc-tag-rv">RV</span></div>
     </div>
-    <div class="vc-x"><span id="vc-x0"></span><span id="vc-xn"></span><span id="vc-x1"></span></div>
+    <div class="vc-x" id="vc-x"></div>
   </div>
   <div class="vol-sub" id="vol-loading"></div>
 </section>
@@ -469,8 +473,8 @@
   'use strict';
 
   // Bump both when the page changes; they show in the bottom-right corner.
-  const VERSION = '1.15';
-  const UPDATED = '2026-10-06';
+  const VERSION = '1.16';
+  const UPDATED = '2026-11-07';
 
   const API = 'https://www.deribit.com/api/v2/public/';
   const CONCURRENCY = 10;
@@ -540,7 +544,7 @@
       ? `\nRecorded since ${h.since ? fmtDate(h.since) : 'today'}: ${h.days} of the ${VOL_MIN_HISTORY_DAYS} days needed before today can be placed against its recent past.`
       : `\nRecent history: ${h.label} today is above ${h.percentile}% of the last ${h.days} days.`;
     return 'Implied is Deribit\'s mark IV at the strike nearest spot for the date closest to 30 days out; realized is Deribit\'s ' +
-      '15-day realized volatility. Recorded four times a day since 01 Oct 2026, nothing recalculated. The dots are the latest readings.' + hist;
+      '15-day realized volatility. Recorded four times a day since 01 Oct 2026, nothing recalculated. The dots are the latest readings; the dates along the bottom are UTC midnights.' + hist;
   } };
   TIPS.sell = { name: 'Sell higher', tip: a =>
     `A covered call: you hold ${a} and pick a price above spot. If ${a} is past it on expiry day, your ${a} is sold at that price; ` +
@@ -563,7 +567,7 @@
     vol: $('vol'), volCells: $('vol-cells'), volBand: $('vol-band'), volIv: $('vol-iv'), volIvLbl: $('vol-iv-lbl'), volRv: $('vol-rv'),
     volMeaning: $('vol-meaning'), volLoading: $('vol-loading'),
     volChart: $('vol-chart'), volSvg: $('vol-svg'),
-    vcTagIv: $('vc-tag-iv'), vcTagRv: $('vc-tag-rv'), vcY0: $('vc-y0'), vcY1: $('vc-y1'), vcX0: $('vc-x0'), vcXn: $('vc-xn'), vcX1: $('vc-x1'),
+    vcTagIv: $('vc-tag-iv'), vcTagRv: $('vc-tag-rv'), vcY0: $('vc-y0'), vcY1: $('vc-y1'), vcX: $('vc-x'), vcXn: $('vc-xn'),
   };
 
   const store = {
@@ -596,6 +600,7 @@
     const d = new Date(ts);
     return `${String(d.getUTCDate()).padStart(2, '0')} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
   }
+  function fmtDay(ts) { return fmtDate(ts).slice(0, 6); }   // "01 NOV", for axis ticks
   function fmtTimeLeft(ts) {
     const hours = (ts - Date.now()) / 36e5;
     if (hours < 1) return '<1h';
@@ -930,22 +935,36 @@
     const midY = Y((lo + hi) / 2);
     const latest = shown[shown.length - 1];
     const dot = key => `<path class="${key} dot" d="M${X(latest.t)},${Y(latest[key])} h0"/>`;
+    // Day ticks: a label at midnight UTC every `step` days, the smallest step whose labels
+    // still fit side by side at this width, each with a faint guide line up the plot.
+    el.volChart.hidden = false;   // shown first, so the plot has a width to measure
+    const plotW = el.volSvg.parentElement.clientWidth || 600;
+    const spanDays = (x1 - x0) / 864e5;
+    const LABEL_PX = 56;   // "01 NOV" at 10px mono (36px), plus air on both sides
+    const step = [1, 2, 3, 5, 7, 10, 14, 30].find(s => spanDays / s * LABEL_PX <= plotW) || 30;
+    const ticks = [];
+    for (let t = Math.ceil(x0 / 864e5) * 864e5; t <= x1; t += step * 864e5) ticks.push(t);
+    const px = t => (t - x0) / (x1 - x0) * plotW;
+    el.vcX.innerHTML = ticks.map(t => {
+      // centred on the tick; the y-axis gutter and the section padding absorb the overhang at the
+      // edges, except a tick right at the end, whose label is pulled left to stay inside the box
+      const x = px(t), side = x > plotW - 8 ? ' class="r"' : '';
+      return `<span${side} style="left:${(x / plotW * 100).toFixed(2)}%">${fmtDay(t)}</span>`;
+    }).join('');
     el.volSvg.innerHTML =
+      ticks.map(t => `<line class="day" x1="${X(t)}" y1="0" x2="${X(t)}" y2="${H}"/>`).join('') +
       `<line class="mid" x1="0" y1="${midY}" x2="${W}" y2="${midY}"/>` +
       `<path class="rv" d="${path('rv')}"/><path class="iv" d="${path('iv')}"/>` + dot('rv') + dot('iv');
     // name each line at its end; when the two ends sit close, the higher line is labelled above, the lower below
-    const px = (latest.t - x0) / (x1 - x0) * 100, pyIv = Number(Y(latest.iv)), pyRv = Number(Y(latest.rv));
+    const pxEnd = (latest.t - x0) / (x1 - x0) * 100, pyIv = Number(Y(latest.iv)), pyRv = Number(Y(latest.rv));
     const close = Math.abs(pyIv - pyRv) < 14, ivHigher = pyIv <= pyRv;
     for (const [tag, py, dy] of [[el.vcTagIv, pyIv, !close ? '-50%' : ivHigher ? '-115%' : '15%'], [el.vcTagRv, pyRv, !close ? '-50%' : ivHigher ? '15%' : '-115%']]) {
-      tag.style.left = px + '%'; tag.style.top = py + '%'; tag.style.transform = `translate(9px, ${dy})`;
+      tag.style.left = pxEnd + '%'; tag.style.top = py + '%'; tag.style.transform = `translate(9px, ${dy})`;
     }
     el.vcY1.textContent = hi + '%';
     el.vcY0.textContent = lo + '%';
-    el.vcX0.textContent = fmtDate(x0);
     const h = state.vol[state.asset] && state.vol[state.asset].history;
-    el.vcXn.textContent = `${shown.length} readings` + (h && h.recording ? ` · ${h.days}/${VOL_MIN_HISTORY_DAYS} days` : '');
-    el.vcX1.textContent = fmtDate(x1);
-    el.volChart.hidden = false;
+    el.vcXn.textContent = `${shown.length} readings since ${fmtDate(x0)}` + (h && h.recording ? ` · ${h.days}/${VOL_MIN_HISTORY_DAYS} days` : '');
   }
 
   // Share of the earlier readings that today's reading is above.
@@ -1162,6 +1181,8 @@
   el.chain.addEventListener('scroll', hideTip, { passive: true });
   window.addEventListener('scroll', hideTip, { passive: true });
   window.addEventListener('resize', hideTip);
+  let relayout = 0;   // the chart's day ticks depend on its pixel width
+  window.addEventListener('resize', () => { clearTimeout(relayout); relayout = setTimeout(() => { chartDrawnFor = null; renderVol(); }, 150); });
 
   // ---------- controls ----------
 
