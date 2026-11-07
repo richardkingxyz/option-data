@@ -15,11 +15,16 @@
 //                   the USDC itself for puts
 //   apr             the seller's return: premium_net / collateral_usd x 365 / days to expiry
 //   payouts / fees  are denominated in the COLLATERAL token (asset for calls, USDC for
-//                   puts) and are converted to USD at the price on the day
+//                   puts) and are converted to USD at the price on the day. Settlement is
+//                   physical, so a payout is the whole collateral handed over, not a loss.
+//   pnl_option      the seller's result on the option alone: premium_net minus the
+//                   in-the-money amount given up on exercise (see scripts/pnl.mjs)
+//   pnl_total       pnl_option plus the coin's price move on the locked collateral
 
 import { writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { encrypt } from '../pro/crypto.mjs';
+import { pnlFields, pnlSummary } from './pnl.mjs';
 
 const RPC = process.env.RPC_URL;
 const PROGRAM = process.env.PROGRAM_ID;
@@ -144,6 +149,8 @@ function priceAt(asset, ms) {
   while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (ticks[mid] <= ms) lo = mid; else hi = mid - 1; }
   return close[lo];
 }
+// the latest hourly close per asset: open options are marked here as if they expired now
+const latest = Object.fromEntries(Object.keys(CANDLES).map(a => [a, priceAt(a, Date.now())]));
 
 // --- 6. assemble options ---
 const opts = new Map();
@@ -181,7 +188,12 @@ for (const e of events) {
   }
 }
 // apr waits until here because it is on the net premium, and the fee arrives in its own event
-const L = [...opts.values()].map(o => { const premium_net = o.premium_gross - o.fee; return { ...o, premium_net, apr: o.collateral_usd > 0 && o.days > 0 ? premium_net / o.collateral_usd * 365 / o.days * 100 : null }; });
+// pnl comes last too: it needs premium_net and the latest price
+const L = [...opts.values()].map(o => {
+  const premium_net = o.premium_gross - o.fee;
+  const x = { ...o, premium_net, apr: o.collateral_usd > 0 && o.days > 0 ? premium_net / o.collateral_usd * 365 / o.days * 100 : null };
+  return { ...x, ...pnlFields(x, latest[x.asset]) };
+});
 
 // --- 7. statistics ---
 const sum = (a, f) => a.reduce((s, x) => s + f(x), 0);
@@ -207,7 +219,8 @@ const stats = {
     per_wallet_mean: mean([...sellers.values()].map(v => mean(v.filter(o => o.apr != null).map(o => o.apr))).filter(x => x != null)),
     per_wallet_median: median([...sellers.values()].map(v => mean(v.filter(o => o.apr != null).map(o => o.apr))).filter(x => x != null)) },
   outcomes: Object.fromEntries(['Otm', 'ItmExercised', 'ItmForfeit', 'ForcedToSeller'].map(k => [k, settled.filter(o => o.outcome === k).length])),
-  itm_payout_usd: sum(settled, o => o.buyer_payout_usd),
+  itm_payout_usd: sum(settled, o => o.buyer_payout_usd),   // collateral handed over on exercise, not the sellers' loss
+  pnl: pnlSummary(L, latest),
   durations: { mean_days: mean(L.map(o => o.days)), median_days: median(L.map(o => o.days)), min_days: Math.min(...L.map(o => o.days)), max_days: Math.max(...L.map(o => o.days)) },
   size: { mean_notional: mean(L.map(o => o.notional)), median_notional: median(L.map(o => o.notional)), max_notional: Math.max(...L.map(o => o.notional)) },
   strike_distance_median_pct: median(L.map(o => Math.abs(o.strike / o.spot - 1) * 100)),
@@ -219,4 +232,4 @@ const stats = {
 };
 
 writeFileSync(new URL('../data/stats.enc', import.meta.url), await encrypt(JSON.stringify(stats), PASSWORD));
-console.log(`stats.enc: ${L.length} options, ${sellers.size} sellers, gross premium $${stats.premium.gross.toFixed(2)}, net $${stats.premium.net_to_sellers.toFixed(2)}`);
+console.log(`stats.enc: ${L.length} options, ${sellers.size} sellers, gross premium $${stats.premium.gross.toFixed(2)}, net $${stats.premium.net_to_sellers.toFixed(2)}, realized option pnl $${stats.pnl.realized.option.toFixed(2)}, total $${stats.pnl.realized.total.toFixed(2)}`);
