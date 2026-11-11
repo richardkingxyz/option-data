@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>crypto option order flow</title>
+<meta name="description" content="Large crypto option trades on Deribit and Derive as they print, plus a weekly digest. Market data, read-only.">
+<meta name="theme-color" content="#000000">
+<meta name="robots" content="noindex">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23000'/%3E%3Cpath d='M3 4l5 4-5 4' fill='none' stroke='%2333FF66' stroke-width='2'/%3E%3Crect x='9' y='11' width='4' height='2' fill='%2333FF66'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --bg: #000; --green: #33FF66; --dim: #1A7F3C; --mid: #27B550; --amber: #FFB000;
+    --hair: 1px solid var(--dim); --row-hair: 1px solid rgba(26, 127, 60, .4);
+    --glow: 0 0 6px rgba(51, 255, 102, .35); --glow-soft: 0 0 3px rgba(51, 255, 102, .22);
+  }
+  *, *::before, *::after { box-sizing: border-box; border-radius: 0; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; padding: 14px 16px 10px; height: 100dvh; display: flex; flex-direction: column; gap: 10px;
+    background: var(--bg); color: var(--green);
+    font: 13px/1.45 "IBM Plex Mono", "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+    -webkit-text-size-adjust: 100%;
+  }
+  body::after {
+    content: ""; position: fixed; inset: 0; z-index: 100; pointer-events: none;
+    background: repeating-linear-gradient(to bottom, rgba(51, 255, 102, .03) 0, rgba(51, 255, 102, .03) 1px, transparent 1px, transparent 3px);
+  }
+  h1 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: .08em; text-shadow: var(--glow); white-space: nowrap; }
+  .head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; }
+  .links { margin-left: auto; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; }
+  .links a { color: var(--green); text-decoration: none; white-space: nowrap; }
+  .links a::before { content: "[ "; color: var(--dim); }
+  .links a::after { content: " ]"; color: var(--dim); }
+  .links a:hover { text-shadow: var(--glow); text-decoration: underline; }
+  .links a:focus-visible { outline: 1px solid var(--green); outline-offset: 2px; }
+
+  .bar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 18px; }
+  .field { display: flex; flex-direction: column; gap: 3px; }
+  .lbl { color: var(--dim); font-size: 11px; letter-spacing: .12em; }
+  .lbl[data-tip] { cursor: help; }
+  .lbl[data-tip] span { border-bottom: 1px dotted var(--dim); }
+  button, select { font: inherit; color: var(--green); background: var(--bg); border: var(--hair); height: 32px; padding: 0 12px; cursor: pointer; }
+  button:hover, select:hover { border-color: var(--green); background: rgba(51, 255, 102, .08); }
+  button:focus-visible, select:focus-visible, th:focus-visible { outline: 1px solid var(--green); outline-offset: 2px; }
+  .seg { display: flex; }
+  .seg button + button { border-left: 0; }
+  .seg button[aria-pressed="true"] { background: var(--green); border-color: var(--green); color: var(--bg); font-weight: 600; }
+  select {
+    -webkit-appearance: none; appearance: none; min-width: 12ch; padding-right: 30px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0h10L5 6z' fill='%2333FF66'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 10px center;
+  }
+  select option { background: #000; color: var(--green); }
+  #f-min { min-width: 18ch; }
+  .field[hidden] { display: none; }
+
+  .head, .bar, .log, footer { flex-shrink: 0; }
+  .log { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 16px; min-height: 1.45em; color: var(--mid); }
+  #status::before { content: "> "; color: var(--dim); }
+  #err { color: var(--amber); }
+  #err:empty { display: none; }
+  .conn { display: flex; gap: 14px; white-space: nowrap; }
+  .conn span::before { content: "●"; margin-right: 5px; color: var(--dim); }
+  .conn span.live::before { color: var(--green); text-shadow: var(--glow); }
+  .conn span.retry::before { color: var(--amber); }
+  .conn span.off::before { color: var(--amber); }
+  .conn span.off { color: var(--amber); }
+
+  .tbl { flex: 1; min-height: 0; overflow: auto; border: var(--hair); }
+  table { width: 100%; border-collapse: separate; border-spacing: 0; font-variant-numeric: tabular-nums; }
+  th, td { padding: 4px 10px; text-align: right; white-space: nowrap; border-bottom: var(--row-hair); }
+  th:first-child, td:first-child { text-align: left; }
+  td.l, th.l { text-align: left; }
+  thead th { position: sticky; top: 0; z-index: 2; background: var(--bg); color: var(--mid); font-weight: 500; font-size: 11px; letter-spacing: .08em; vertical-align: bottom; border-bottom: var(--hair); }
+  th[data-tip] { cursor: help; }
+  th[data-tip] span { border-bottom: 1px dotted var(--dim); }
+  th[data-tip]:hover, th[data-tip]:focus-visible { color: var(--green); }
+  tbody tr:hover td { background: rgba(51, 255, 102, .08); }
+  td.buy { color: var(--green); font-weight: 600; }
+  td.sell { color: var(--amber); font-weight: 600; }
+  td.dim { color: var(--mid); }
+  td.na { color: var(--dim); }
+  td b { font-weight: 600; text-shadow: var(--glow-soft); }
+  .tag { display: inline-block; margin-left: 6px; padding: 0 5px; border: 1px solid var(--dim); font-size: 10px; letter-spacing: .08em; color: var(--mid); line-height: 16px; }
+  .tag.b { color: var(--green); border-color: var(--green); }
+  .tag.w { color: var(--amber); border-color: var(--amber); }
+  @keyframes flash { from { background: rgba(51, 255, 102, .35); } to { background: transparent; } }
+  tr.new td { animation: flash 2.5s ease-out; }
+  .empty { padding: 16px 12px; color: var(--mid); }
+  .empty:empty { display: none; }
+
+  /* digest */
+  #digest { flex: 1; min-height: 0; overflow: auto; border: var(--hair); padding: 8px 12px 12px; }
+  #digest[hidden], #live[hidden] { display: none; }
+  #live { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+  .dg h2 { margin: 14px 0 4px; font-size: 12px; font-weight: 600; letter-spacing: .12em; color: var(--green); text-shadow: var(--glow); }
+  .dg h2:first-child { margin-top: 2px; }
+  .dg h2 small { font-weight: 400; letter-spacing: .04em; color: var(--dim); margin-left: 10px; }
+  .dg table { width: auto; min-width: min(100%, 60ch); }
+  .dg p { margin: 2px 0; color: var(--mid); }
+  .dg .note { color: var(--dim); font-size: 12px; }
+
+  footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 16px; color: var(--dim); font-size: 11px; }
+  #version { margin-left: auto; white-space: nowrap; }
+
+  #tip {
+    position: fixed; z-index: 50; display: none; max-width: min(340px, calc(100vw - 16px)); padding: 8px 10px;
+    background: var(--bg); border: 1px solid var(--green); box-shadow: 0 0 14px rgba(51, 255, 102, .18);
+    color: var(--green); font-size: 12px; line-height: 1.5; white-space: pre-line; pointer-events: none;
+  }
+  #tip b { display: block; letter-spacing: .1em; margin-bottom: 3px; }
+
+  @media (max-width: 900px) {
+    body { height: auto; min-height: 100dvh; padding: 10px 10px 8px; font-size: 12px; }   /* the page scrolls, nothing squashes */
+    th, td { padding: 4px 7px; }
+    .bar { gap: 8px 12px; }
+    button, select { height: 30px; padding: 0 9px; }
+    .tbl, #digest { flex: none; max-height: 70dvh; }
+  }
+</style>
+</head>
+<body>
+
+<header class="head">
+  <h1>[ OPTION ORDER FLOW ]</h1>
+  <nav class="links" aria-label="Links">
+    <a href="index.html">chain</a>
+    <a href="pro.html" title="Password required">pro</a>
+    <a href="https://x.com/richardkingxyz" target="_blank" rel="noopener" aria-label="@richardkingxyz on X">x: @richardkingxyz</a>
+  </nav>
+</header>
+
+<div class="bar">
+  <div class="field"><span class="lbl" id="view-lbl">VIEW</span>
+    <div class="seg" role="group" aria-labelledby="view-lbl" id="views">
+      <button type="button" data-view="live" aria-pressed="true">LIVE</button>
+      <button type="button" data-view="digest" aria-pressed="false">WEEKLY DIGEST</button>
+    </div></div>
+  <div class="field f-live"><span class="lbl" id="coin-lbl">COIN</span>
+    <div class="seg" role="group" aria-labelledby="coin-lbl" data-filter="underlying">
+      <button type="button" data-v="" aria-pressed="true">ALL</button><button type="button" data-v="BTC" aria-pressed="false">BTC</button><button type="button" data-v="ETH" aria-pressed="false">ETH</button><button type="button" data-v="SOL" aria-pressed="false">SOL</button>
+    </div></div>
+  <div class="field f-live"><span class="lbl" id="venue-lbl">VENUE</span>
+    <div class="seg" role="group" aria-labelledby="venue-lbl" data-filter="venue">
+      <button type="button" data-v="" aria-pressed="true">ALL</button><button type="button" data-v="deribit" aria-pressed="false">DERIBIT</button><button type="button" data-v="derive" aria-pressed="false">DERIVE</button>
+    </div></div>
+  <div class="field f-live"><span class="lbl" id="type-lbl">TYPE</span>
+    <div class="seg" role="group" aria-labelledby="type-lbl" data-filter="type">
+      <button type="button" data-v="" aria-pressed="true">ALL</button><button type="button" data-v="call" aria-pressed="false">CALLS</button><button type="button" data-v="put" aria-pressed="false">PUTS</button>
+    </div></div>
+  <div class="field f-live"><span class="lbl" id="side-lbl" data-tip="side"><span>SIDE</span></span>
+    <div class="seg" role="group" aria-labelledby="side-lbl" data-filter="side">
+      <button type="button" data-v="" aria-pressed="true">ALL</button><button type="button" data-v="buy" aria-pressed="false">BOUGHT</button><button type="button" data-v="sell" aria-pressed="false">SOLD</button>
+    </div></div>
+  <div class="field f-live"><span class="lbl" id="block-lbl" data-tip="block"><span>BLOCKS</span></span>
+    <div class="seg" role="group" aria-labelledby="block-lbl" data-filter="block">
+      <button type="button" data-v="" aria-pressed="true">ALL</button><button type="button" data-v="1" aria-pressed="false">BLOCKS ONLY</button>
+    </div></div>
+  <label class="field f-live"><span class="lbl" data-tip="minprem"><span>MIN PREMIUM</span></span>
+    <select id="f-min">
+      <option value="0">feed threshold</option><option value="10000">$10k</option><option value="25000">$25k</option><option value="50000">$50k</option>
+      <option value="100000">$100k</option><option value="250000">$250k</option><option value="1000000">$1M</option>
+    </select></label>
+  <label class="field f-digest" hidden><span class="lbl">WEEK</span><select id="week"><option value="">--</option></select></label>
+</div>
+
+<div class="log">
+  <div id="status" role="status" aria-live="polite"></div>
+  <div class="conn" id="conn" aria-live="polite"><span id="c-deribit" data-tip="conn">deribit</span><span id="c-derive" data-tip="conn">derive</span></div>
+  <div id="err" role="alert"></div>
+</div>
+
+<section id="live" aria-label="Live large trades">
+  <div class="tbl">
+    <table id="flow">
+      <thead><tr>
+        <th class="l" data-tip="time" tabindex="0"><span>TIME</span></th>
+        <th class="l">VENUE</th>
+        <th class="l">COIN</th>
+        <th class="l" data-tip="instrument" tabindex="0"><span>INSTRUMENT</span></th>
+        <th class="l" data-tip="side" tabindex="0"><span>SIDE</span></th>
+        <th data-tip="size" tabindex="0"><span>SIZE</span></th>
+        <th data-tip="notional" tabindex="0"><span>NOTIONAL</span></th>
+        <th data-tip="premium" tabindex="0"><span>PREMIUM</span></th>
+        <th data-tip="iv" tabindex="0"><span>IV</span></th>
+        <th data-tip="moneyness" tabindex="0"><span>FROM SPOT</span></th>
+        <th data-tip="dte" tabindex="0"><span>DTE</span></th>
+        <th class="l" data-tip="tags" tabindex="0"><span>TAGS</span></th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div class="empty" id="empty"></div>
+  </div>
+</section>
+
+<section id="digest" class="dg" hidden aria-label="Weekly digest"></section>
+
+<footer>
+  <span>source: deribit.com, derive.xyz // <span id="disclaimer"></span></span>
+  <span id="version"></span>
+</footer>
+<div id="tip" role="tooltip"></div>
+
+<script type="module">
+  import { fromDeribit, fromDerive, keepLarge, isLarge, shortWallet, fmtUsd, fmtSize, DISCLAIMER, DEFAULT_CONFIG, UNDERLYINGS, VENUES } from './scripts/orderflow-lib.mjs';
+
+  const VERSION = '0.1';
+  const UPDATED = '2026-11-11';
+  const DATA = 'data/orderflow/';
+  const MAX_ROWS = 1000;
+  const REPEAT_MIN = 3;          // a Derive wallet seen this many times in the list gets the REPEAT tag
+  const $ = id => document.getElementById(id);
+  const el = { rows: $('rows'), status: $('status'), err: $('err'), empty: $('empty'), tip: $('tip'), week: $('week'), digest: $('digest'), live: $('live'), min: $('f-min') };
+  $('disclaimer').textContent = DISCLAIMER;
+  $('version').textContent = `v${VERSION} // updated ${UPDATED}`;
+
+  const state = {
+    cfg: DEFAULT_CONFIG,
+    rows: [],                  // newest first, capped at MAX_ROWS
+    ids: new Set(),
+    filter: { underlying: '', venue: '', type: '', side: '', block: '' },
+    minPremium: 0,
+    live: 0, savedAt: null, view: 'live',
+    wallets: new Map(),        // derive wallet -> count, for the REPEAT tag
+  };
+
+  // ---- tooltips: plain words for every column and control ----
+  const TIPS = {
+    time: ['Time', 'When the trade printed, in your local time. Older than today shows the date too.'],
+    instrument: ['Instrument', "The venue's own name: coin, expiry, strike, C for call or P for put. Both venues expire at 08:00 UTC."],
+    side: ['Side', 'The taker: the party that crossed the spread to get filled. BOUGHT means the aggressor bought the option, SOLD means the aggressor sold it. The other side was a resting quote.'],
+    size: ['Size', 'Contracts, in coin: 400 means 400 BTC of options. On Derive one contract is one coin.'],
+    notional: ['Notional', 'Size times the index price at the trade, in USD. How much coin the option covers.'],
+    premium: ['Premium', 'What the taker paid or received, in USD. Deribit BTC and ETH quote in coin, so price x size x index; SOL on Deribit and everything on Derive quote in USDC, so price x size.'],
+    iv: ['IV', "The trade's implied volatility as Deribit reports it. Derive does not publish IV with trades, so those show --."],
+    moneyness: ['From spot', 'Strike against the index price at the trade: +8.7% means the strike sits 8.7% above spot.'],
+    dte: ['DTE', 'Days to expiry at the time of the trade.'],
+    tags: ['Tags', 'BLOCK: a privately negotiated Deribit trade reported to the tape. RFQ: a Derive request-for-quote fill. REPEAT: a Derive wallet seen ' + REPEAT_MIN + ' or more times in this list, address shortened.'],
+    block: ['Blocks', 'Block trades are negotiated off the order book and printed afterwards. Usually the largest tickets.'],
+    minprem: ['Min premium', 'Hide everything under this premium. "feed threshold" shows all that the feed keeps (see the status line for the current rule).'],
+    conn: ['Connection', 'live: trades arrive over the venue\'s public socket as they print. reconnecting: the socket dropped and is being reopened with a growing pause. offline: no socket; the table still shows the saved feed, refreshed every 15 minutes.'],
+  };
+  let tipFor = null;
+  function showTip(t) {
+    const d = TIPS[t.dataset.tip]; if (!d) return;
+    tipFor = t;
+    const b = document.createElement('b'); b.textContent = d[0].toUpperCase();
+    el.tip.replaceChildren(b, d[1]);
+    el.tip.style.display = 'block';
+    const r = t.getBoundingClientRect(), w = el.tip.offsetWidth, h = el.tip.offsetHeight;
+    const x = Math.max(8, Math.min(r.left + r.width / 2 - w / 2, innerWidth - w - 8));
+    let y = r.bottom + 6; if (y + h > innerHeight - 8) y = Math.max(8, r.top - h - 6);
+    el.tip.style.left = x + 'px'; el.tip.style.top = y + 'px';
+  }
+  function hideTip() { tipFor = null; el.tip.style.display = 'none'; }
+  const tipTarget = e => e.target.closest ? e.target.closest('[data-tip]') : null;
+  document.addEventListener('pointerover', e => { const t = tipTarget(e); if (t && e.pointerType === 'mouse' && t !== tipFor) showTip(t); });
+  document.addEventListener('pointerout', e => { const t = tipTarget(e); if (t && e.pointerType === 'mouse' && !t.contains(e.relatedTarget)) hideTip(); });
+  document.addEventListener('focusin', e => { const t = tipTarget(e); if (t) showTip(t); });
+  document.addEventListener('focusout', e => { if (tipTarget(e)) hideTip(); });
+  document.addEventListener('click', e => { const t = tipTarget(e); if (!t) hideTip(); else if (t === tipFor) hideTip(); else showTip(t); });
+  addEventListener('resize', hideTip);
+  addEventListener('scroll', hideTip, true);
+
+  // ---- formatting ----
+  const pad = n => String(n).padStart(2, '0');
+  const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+  function fmtTime(ts) {
+    const d = new Date(ts), now = new Date();
+    const hms = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    return d.toDateString() === now.toDateString() ? hms : `${pad(d.getDate())} ${MONTHS[d.getMonth()]} ${hms}`;
+  }
+  const pct = x => x == null ? '--' : `${x > 0 ? '+' : ''}${x.toFixed(1)}%`;
+
+  // ---- the table ----
+  function passes(r) {
+    const f = state.filter;
+    if (f.underlying && r.underlying !== f.underlying) return false;
+    if (f.venue && r.venue !== f.venue) return false;
+    if (f.type && r.type !== f.type) return false;
+    if (f.side && r.side !== f.side) return false;
+    if (f.block && !r.block) return false;
+    if (state.minPremium && r.premiumUsd < state.minPremium) return false;
+    return true;
+  }
+  function rowHtml(r, fresh) {
+    const tags = [];
+    if (r.block) tags.push('<i class="tag b">BLOCK</i>');
+    if (r.rfq) tags.push('<i class="tag">RFQ</i>');
+    if (r.wallet && (state.wallets.get(r.wallet) || 0) >= REPEAT_MIN) tags.push(`<i class="tag w" title="${r.wallet}">REPEAT ${shortWallet(r.wallet)}</i>`);
+    else if (r.wallet) tags.push(`<i class="tag" title="${r.wallet}">${shortWallet(r.wallet)}</i>`);
+    return `<tr${fresh ? ' class="new"' : ''} data-id="${r.id}">` +
+      `<td class="l" title="${new Date(r.ts).toISOString()}">${fmtTime(r.ts)}</td>` +
+      `<td class="l dim">${r.venue}</td><td class="l">${r.underlying}</td><td class="l">${r.instrument}</td>` +
+      `<td class="l ${r.side}">${r.side === 'buy' ? 'bought' : 'sold'}</td>` +
+      `<td>${fmtSize(r.size)}</td><td class="dim">${fmtUsd(r.notionalUsd)}</td><td><b>${fmtUsd(r.premiumUsd)}</b></td>` +
+      `<td class="${r.iv == null ? 'na' : ''}">${r.iv == null ? '--' : r.iv.toFixed(1) + '%'}</td>` +
+      `<td class="dim">${pct(r.moneynessPct)}</td><td class="dim">${r.dte}</td><td class="l">${tags.join('')}</td></tr>`;
+  }
+  let renderQueued = false;
+  const freshIds = new Set();
+  function render() {
+    renderQueued = false;
+    const shown = state.rows.filter(passes);
+    el.rows.innerHTML = shown.map(r => rowHtml(r, freshIds.has(r.id))).join('');
+    freshIds.clear();
+    el.empty.textContent = shown.length ? '' : state.rows.length ? 'nothing matches these filters' : 'no trades loaded';
+    status();
+  }
+  function queueRender() { if (!renderQueued) { renderQueued = true; setTimeout(render, 150); } }
+  function status() {
+    const c = state.cfg, n = state.rows.length;
+    const rule = `kept: blocks${c.alwaysInclude?.rfq ? ', RFQs' : ''}, or ${UNDERLYINGS.map(u => `${u} ${fmtUsd(c.minNotionalUsd?.[u])} notional / ${fmtUsd(c.minPremiumUsd?.[u])} premium`).join(', ')}` +
+      (c.derive?.minNotionalUsd ? `; Derive ${typeof c.derive.minNotionalUsd === 'number' ? fmtUsd(c.derive.minNotionalUsd) : 'per coin'} notional` : '');
+    const saved = state.savedAt ? `saved feed ${fmtTime(state.savedAt)}` : 'saved feed unavailable';
+    el.status.textContent = `${n} large trades (${saved}${state.live ? `, +${state.live} live` : ''}) · ${rule}`;
+  }
+
+  // Add records (already normalized). Returns how many were new.
+  function add(records, fresh) {
+    let added = 0;
+    for (const r of records) {
+      if (state.ids.has(r.id)) {
+        // Derive sends both sides of a match; a taker row replaces an earlier maker-derived one
+        if (r.venue === 'derive' && r.wallet) { const i = state.rows.findIndex(x => x.id === r.id); if (i >= 0 && !state.rows[i].wallet) { walletCount(state.rows[i], -1); state.rows[i] = r; walletCount(r, 1); } }
+        continue;
+      }
+      state.ids.add(r.id);
+      state.rows.push(r);
+      walletCount(r, 1);
+      if (fresh) freshIds.add(r.id);
+      added++;
+    }
+    if (!added) return 0;
+    state.rows.sort((a, b) => b.ts - a.ts || (a.id < b.id ? 1 : -1));
+    while (state.rows.length > MAX_ROWS) { const gone = state.rows.pop(); state.ids.delete(gone.id); walletCount(gone, -1); }
+    queueRender();
+    return added;
+  }
+  function walletCount(r, d) { if (r.wallet) state.wallets.set(r.wallet, (state.wallets.get(r.wallet) || 0) + d); }
+
+  // ---- saved feed: config + latest.json, then every 15 minutes ----
+  async function loadConfig() {
+    try {
+      const r = await fetch(`${DATA}config.json?t=${Date.now()}`);   // tiny file, always fresh: a threshold edit shows on the next load
+      if (r.ok) state.cfg = { ...DEFAULT_CONFIG, ...await r.json() };
+    } catch {}
+  }
+  async function loadSaved() {
+    try {
+      const r = await fetch(`${DATA}latest.json?t=${Date.now()}`);
+      if (!r.ok) throw new Error(`latest.json ${r.status}`);
+      const j = await r.json();
+      state.savedAt = j.updated || null;
+      // re-apply the current rule, so a changed config.json shows at once, before the collector catches up
+      add(keepLarge(j.trades || [], state.cfg), false);
+      el.err.textContent = '';
+    } catch (e) {
+      if (!state.rows.length) el.err.textContent = `saved feed unavailable: ${e.message || e}`;
+    }
+    status();
+  }
+
+  // ---- live sockets ----
+  const sockets = {
+    deribit: {
+      url: 'wss://www.deribit.com/ws/api/v2',
+      open(ws) {
+        ws.send(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'public/set_heartbeat', params: { interval: 30 } }));
+        ws.send(JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'public/subscribe', params: { channels: ['trades.option.BTC.100ms', 'trades.option.ETH.100ms', 'trades.option.USDC.100ms'] } }));
+      },
+      message(ws, j) {
+        if (j.method === 'heartbeat') { if (j.params?.type === 'test_request') ws.send(JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'public/test', params: {} })); return; }
+        if (j.method !== 'subscription' || !Array.isArray(j.params?.data)) return;
+        const recs = j.params.data.filter(t => !t.instrument_name.includes('_') || t.instrument_name.startsWith('SOL_')).map(fromDeribit).filter(Boolean);
+        state.live += add(keepLarge(recs, state.cfg), true);
+      },
+    },
+    derive: {
+      url: 'wss://api.derive.xyz/v3/ws',
+      open(ws) { ws.send(JSON.stringify({ id: 1, method: 'subscribe', params: { channels: ['trades.option.BTC', 'trades.option.ETH', 'trades.option.SOL'] } })); },
+      message(ws, j) {
+        const data = j.params?.data;
+        if (!j.params?.channel?.startsWith('trades.') || !Array.isArray(data)) return;
+        // keep the taker's view of each match: a maker row is flipped and loses its wallet, a taker row wins
+        const recs = data.map(t => t.liquidity_role === 'maker' ? fromDerive({ ...t, direction: t.direction === 'buy' ? 'sell' : 'buy', wallet: null }) : fromDerive(t)).filter(Boolean);
+        state.live += add(keepLarge(recs, state.cfg), true);
+      },
+    },
+  };
+  function connect(name, attempt = 0) {
+    const s = sockets[name], ind = $('c-' + name);
+    const set = (cls, txt) => { ind.className = cls; ind.textContent = `${name} ${txt}`; };
+    if (typeof WebSocket === 'undefined') { set('off', 'offline'); return; }
+    set(attempt ? 'retry' : '', attempt ? 'reconnecting' : 'connecting');
+    let ws, opened = false;
+    try { ws = new WebSocket(s.url); } catch { set('off', 'offline'); retry(); return; }
+    const retry = () => {
+      const next = attempt + 1, wait = Math.min(30000, 1000 * 2 ** Math.min(attempt, 5));
+      if (next >= 4) set('off', 'offline, retrying');
+      setTimeout(() => connect(name, next), wait);
+    };
+    ws.onopen = () => { opened = true; attempt = 0; set('live', 'live'); s.open(ws); };
+    ws.onmessage = m => { try { s.message(ws, JSON.parse(m.data)); } catch (e) { console.warn(name, e); } };
+    ws.onerror = () => {};
+    ws.onclose = () => { if (opened) set('retry', 'reconnecting'); retry(); };
+  }
+
+  // ---- digest view ----
+  async function loadWeeks() {
+    try {
+      const r = await fetch(`${DATA}digest/index.json?t=${Math.floor(Date.now() / 6e5)}`);
+      if (!r.ok) throw new Error(String(r.status));
+      const j = await r.json();
+      el.week.innerHTML = (j.weeks || []).map(w => `<option value="${w}">${w}</option>`).join('') || '<option value="">--</option>';
+      if (j.latest) el.week.value = j.latest;
+    } catch { el.week.innerHTML = '<option value="">--</option>'; }
+  }
+  const cell = (v, cls = '') => `<td${cls ? ` class="${cls}"` : ''}>${v}</td>`;
+  const table = (head, rows) => `<table><thead><tr>${head.map(h => `<th${/^[A-Z]/.test(h) && !/\$|%/.test(h) ? ' class="l"' : ''}>${h}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr>${r.join('')}</tr>`).join('')}</tbody></table>`;
+  async function renderDigest() {
+    const w = el.week.value;
+    if (!w) { el.digest.innerHTML = '<p class="note">No digest yet. The first one is built on Monday at 00:30 UTC for the week that just ended.</p>'; return; }
+    el.digest.innerHTML = '<p class="note">loading…</p>';
+    let d;
+    try { const r = await fetch(`${DATA}digest/${w}.json?t=${Math.floor(Date.now() / 6e5)}`); if (!r.ok) throw new Error(String(r.status)); d = await r.json(); }
+    catch (e) { el.digest.innerHTML = `<p class="note">digest ${w} unavailable (${e.message || e})</p>`; return; }
+    const T = d.totals, parts = [];
+    parts.push(`<h2>WEEK ${d.week}<small>${d.start} to ${d.end}, UTC · ${T.trades} large trades · ${fmtUsd(T.premiumUsd)} premium</small></h2>`);
+    parts.push(table(['COIN', 'TRADES', 'PREMIUM $'], UNDERLYINGS.map(u => [cell(u, 'l'), cell(T.byUnderlying[u]?.trades ?? 0), cell(`<b>${fmtUsd(T.byUnderlying[u]?.premiumUsd)}</b>`)])
+      .concat(VENUES.map(v => [cell(v, 'l dim'), cell(T.byVenue[v]?.trades ?? 0), cell(fmtUsd(T.byVenue[v]?.premiumUsd))]))));
+    parts.push('<h2>TOP 10 BY PREMIUM</h2>');
+    parts.push(table(['DATE', 'VENUE', 'INSTRUMENT', 'SIDE', 'SIZE', 'PREMIUM $', 'IV %', 'FROM SPOT %', 'TAGS'], d.top10.map(t => [
+      cell(t.date.slice(5), 'l'), cell(t.venue, 'l dim'), cell(t.instrument, 'l'), cell(t.side, 'l ' + (t.side === 'bought' ? 'buy' : 'sell')), cell(fmtSize(t.size)), cell(`<b>${fmtUsd(t.premiumUsd)}</b>`),
+      cell(t.iv == null ? '--' : t.iv.toFixed(1), t.iv == null ? 'na' : ''), cell(pct(t.moneynessPct), 'dim'), cell((t.block ? '<i class="tag b">BLOCK</i>' : '') + (t.rfq ? '<i class="tag">RFQ</i>' : ''), 'l')])));
+    parts.push('<h2>CALLS VS PUTS, BOUGHT VS SOLD<small>premium by the taker side</small></h2>');
+    parts.push(table(['COIN', 'CALLS BOUGHT $', 'CALLS SOLD $', 'PUTS BOUGHT $', 'PUTS SOLD $'], UNDERLYINGS.map(u => { const b = d.buckets[u] || {}; return [cell(u, 'l'), cell(fmtUsd(b.call_bought?.premiumUsd)), cell(fmtUsd(b.call_sold?.premiumUsd)), cell(fmtUsd(b.put_bought?.premiumUsd)), cell(fmtUsd(b.put_sold?.premiumUsd))]; })));
+    parts.push('<h2>MOST ACTIVE<small>by premium</small></h2>');
+    for (const u of UNDERLYINGS) {
+      const a = d.active[u]; if (!a || !a.strikes.length) continue;
+      parts.push(`<p><b>${u}</b> strikes: ${a.strikes.map(s => `${s.key} ${fmtUsd(s.premiumUsd)}`).join(' · ')}</p>`);
+      parts.push(`<p><b>${u}</b> expiries: ${a.expiries.map(s => `${s.key} ${fmtUsd(s.premiumUsd)}`).join(' · ')}</p>`);
+    }
+    parts.push(`<h2>BLOCK TRADES</h2><p>${d.blocks.trades} trades, ${fmtUsd(d.blocks.premiumUsd)} premium, ${d.blocks.premiumSharePct}% of the week's premium.</p>`);
+    parts.push(`<h2>DERIVE WALLETS SEEN 3+ TIMES<small>${d.repeatWallets.length} wallets</small></h2>`);
+    parts.push(d.repeatWallets.length ? table(['WALLET', 'TRADES', 'PREMIUM $'], d.repeatWallets.map(w => [cell(w.wallet, 'l'), cell(w.trades), cell(fmtUsd(w.premiumUsd))])) : '<p class="note">none this week</p>');
+    parts.push(`<p class="note" style="margin-top:14px">${d.disclaimer || DISCLAIMER} · built ${d.generated.slice(0, 16).replace('T', ' ')} UTC</p>`);
+    el.digest.innerHTML = parts.join('');
+  }
+
+  // ---- controls ----
+  document.querySelectorAll('.seg[data-filter]').forEach(seg => seg.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    seg.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+    state.filter[seg.dataset.filter] = b.dataset.v;
+    render();
+  }));
+  el.min.addEventListener('change', () => { state.minPremium = Number(el.min.value) || 0; render(); });
+  $('views').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    setView(b.dataset.view);
+  });
+  function setView(v) {
+    state.view = v;
+    $('views').querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.view === v)));
+    el.live.hidden = v !== 'live'; el.digest.hidden = v !== 'digest';
+    document.querySelectorAll('.f-live').forEach(x => x.hidden = v !== 'live');
+    document.querySelectorAll('.f-digest').forEach(x => x.hidden = v !== 'digest');
+    if (v === 'digest') renderDigest();
+    try { localStorage.setItem('flow.view', v); } catch {}
+  }
+  el.week.addEventListener('change', renderDigest);
+
+  // ---- boot ----
+  await loadConfig();
+  await Promise.all([loadSaved(), loadWeeks()]);
+  render();
+  let startView = 'live'; try { startView = localStorage.getItem('flow.view') || 'live'; } catch {}
+  if (startView === 'digest') setView('digest');
+  connect('deribit'); connect('derive');
+  setInterval(async () => { await loadConfig(); await loadSaved(); }, 15 * 60e3);
+  window.flow = { state, add, render, isLarge };   // for the headless check
+</script>
+</body>
+</html>

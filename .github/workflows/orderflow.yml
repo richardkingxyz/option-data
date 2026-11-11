@@ -1,0 +1,30 @@
+name: orderflow
+on:
+  schedule:
+    - cron: '*/15 * * * *'   # GitHub often runs these 5-15 minutes late; the live page covers the gap
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency: orderflow
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - id: collect
+        run: node scripts/collect-orderflow.mjs
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/orderflow
+          if git diff --cached --quiet; then echo "no new trades"; exit 0; fi
+          git commit -m "orderflow: +${{ steps.collect.outputs.added }} trades"
+          # the snapshot job commits to the same branch: rebase onto whatever landed meanwhile
+          for i in 1 2 3 4 5; do
+            git pull --rebase origin main && git push && exit 0
+            sleep $((i * 10))
+          done
+          exit 1

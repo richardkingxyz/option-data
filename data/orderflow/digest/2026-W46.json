@@ -1,0 +1,475 @@
+{
+ "week": "2026-W46",
+ "start": "2026-11-09",
+ "end": "2026-11-15",
+ "generated": "2026-11-11T05:38:57.740Z",
+ "totals": {
+  "trades": 1106,
+  "premiumUsd": 72564820,
+  "byUnderlying": {
+   "BTC": {
+    "trades": 736,
+    "premiumUsd": 63704891
+   },
+   "ETH": {
+    "trades": 340,
+    "premiumUsd": 8716404
+   },
+   "SOL": {
+    "trades": 30,
+    "premiumUsd": 143525
+   }
+  },
+  "byVenue": {
+   "deribit": {
+    "trades": 421,
+    "premiumUsd": 25484951
+   },
+   "derive": {
+    "trades": 685,
+    "premiumUsd": 47079868
+   }
+  }
+ },
+ "top10": [
+  {
+   "date": "2026-11-10",
+   "venue": "deribit",
+   "instrument": "BTC-26MAR27-68000-P",
+   "side": "sold",
+   "size": 1000,
+   "premiumUsd": 4143787,
+   "notionalUsd": 73211780,
+   "iv": 41.01,
+   "moneynessPct": -7.12,
+   "block": true,
+   "rfq": false
+  },
+  {
+   "date": "2026-11-10",
+   "venue": "deribit",
+   "instrument": "BTC-26MAR27-70000-P",
+   "side": "bought",
+   "size": 800,
+   "premiumUsd": 3924151,
+   "notionalUsd": 58569424,
+   "iv": 40.61,
+   "moneynessPct": -4.39,
+   "block": true,
+   "rfq": false
+  },
+  {
+   "date": "2026-11-10",
+   "venue": "deribit",
+   "instrument": "BTC-29JAN27-71000-P",
+   "side": "bought",
+   "size": 500,
+   "premiumUsd": 1950862,
+   "notionalUsd": 36601545,
+   "iv": 39.61,
+   "moneynessPct": -3.01,
+   "block": true,
+   "rfq": false
+  },
+  {
+   "date": "2026-11-10",
+   "venue": "deribit",
+   "instrument": "BTC-26MAR27-66000-P",
+   "side": "sold",
+   "size": 500,
+   "premiumUsd": 1749762,
+   "notionalUsd": 36605890,
+   "iv": 41.66,
+   "moneynessPct": -9.85,
+   "block": true,
+   "rfq": false
+  },
+  {
+   "date": "2026-11-10",
+   "venue": "derive",
+   "instrument": "BTC-20270129-105000-P",
+   "side": "bought",
+   "size": 15,
+   "premiumUsd": 447547,
+   "notionalUsd": 1113980,
+   "iv": null,
+   "moneynessPct": 41.38,
+   "block": false,
+   "rfq": true
+  },
+  {
+   "date": "2026-11-10",
+   "venue": "derive",
+   "instrument": "BTC-20270129-105000-P",
+   "side": "bought",
+   "size": 15,
+   "premiumUsd": 446967,
+   "notionalUsd": 1114359,
+   "iv": null,
+   "moneynessPct": 41.34,
+   "block": false,
+   "rfq": true
+  },
+  {
+   "date": "2026-11-11",
+   "venue": "deribit",
+   "instrument": "BTC-29JAN27-75000-P",
+   "side": "sold",
+   "size": 75,
+   "premiumUsd": 406572,
+   "notionalUsd": 5531594,
+   "iv": 38.28,
+   "moneynessPct": 1.69,
+   "block": true,
+   "rfq": false
+  },
+  {
+   "date": "2026-11-09",
+   "venue": "derive",
+   "instrument": "BTC-20261225-50000-C",
+   "side": "sold",
+   "size": 15,
+   "premiumUsd": 380025,
+   "notionalUsd": 1121874,
+   "iv": null,
+   "moneynessPct": -33.15,
+   "block": false,
+   "rfq": true
+  },
+  {
+   "date": "2026-11-09",
+   "venue": "derive",
+   "instrument": "BTC-20261225-50000-C",
+   "side": "bought",
+   "size": 15,
+   "premiumUsd": 379390,
+   "notionalUsd": 1121875,
+   "iv": null,
+   "moneynessPct": -33.15,
+   "block": false,
+   "rfq": true
+  },
+  {
+   "date": "2026-11-11",
+   "venue": "deribit",
+   "instrument": "BTC-29JAN27-75000-C",
+   "side": "sold",
+   "size": 75,
+   "premiumUsd": 376702,
+   "notionalUsd": 5531594,
+   "iv": 37.84,
+   "moneynessPct": 1.69,
+   "block": true,
+   "rfq": false
+  }
+ ],
+ "buckets": {
+  "BTC": {
+   "call_bought": {
+    "trades": 190,
+    "premiumUsd": 10175152
+   },
+   "call_sold": {
+    "trades": 190,
+    "premiumUsd": 10334916
+   },
+   "put_bought": {
+    "trades": 177,
+    "premiumUsd": 21334991
+   },
+   "put_sold": {
+    "trades": 179,
+    "premiumUsd": 21859832
+   }
+  },
+  "ETH": {
+   "call_bought": {
+    "trades": 71,
+    "premiumUsd": 1133425
+   },
+   "call_sold": {
+    "trades": 91,
+    "premiumUsd": 1289168
+   },
+   "put_bought": {
+    "trades": 95,
+    "premiumUsd": 3320893
+   },
+   "put_sold": {
+    "trades": 83,
+    "premiumUsd": 2972918
+   }
+  },
+  "SOL": {
+   "call_bought": {
+    "trades": 8,
+    "premiumUsd": 38515
+   },
+   "call_sold": {
+    "trades": 5,
+    "premiumUsd": 50105
+   },
+   "put_bought": {
+    "trades": 12,
+    "premiumUsd": 37826
+   },
+   "put_sold": {
+    "trades": 5,
+    "premiumUsd": 17079
+   }
+  }
+ },
+ "active": {
+  "BTC": {
+   "strikes": [
+    {
+     "key": "105000P",
+     "trades": 131,
+     "premiumUsd": 15501260
+    },
+    {
+     "key": "50000C",
+     "trades": 142,
+     "premiumUsd": 13369340
+    },
+    {
+     "key": "70000P",
+     "trades": 12,
+     "premiumUsd": 4658783
+    },
+    {
+     "key": "68000P",
+     "trades": 1,
+     "premiumUsd": 4143787
+    },
+    {
+     "key": "71000P",
+     "trades": 14,
+     "premiumUsd": 2704600
+    }
+   ],
+   "expiries": [
+    {
+     "key": "2027-01-29",
+     "trades": 284,
+     "premiumUsd": 31981686
+    },
+    {
+     "key": "2027-03-26",
+     "trades": 95,
+     "premiumUsd": 17982413
+    },
+    {
+     "key": "2026-12-25",
+     "trades": 76,
+     "premiumUsd": 5687091
+    },
+    {
+     "key": "2026-11-27",
+     "trades": 85,
+     "premiumUsd": 3488982
+    },
+    {
+     "key": "2026-11-13",
+     "trades": 41,
+     "premiumUsd": 1406311
+    }
+   ]
+  },
+  "ETH": {
+   "strikes": [
+    {
+     "key": "4000P",
+     "trades": 16,
+     "premiumUsd": 1445450
+    },
+    {
+     "key": "3200P",
+     "trades": 30,
+     "premiumUsd": 1436871
+    },
+    {
+     "key": "1200C",
+     "trades": 18,
+     "premiumUsd": 789794
+    },
+    {
+     "key": "1500C",
+     "trades": 20,
+     "premiumUsd": 603228
+    },
+    {
+     "key": "2200P",
+     "trades": 18,
+     "premiumUsd": 503817
+    }
+   ],
+   "expiries": [
+    {
+     "key": "2026-12-25",
+     "trades": 101,
+     "premiumUsd": 4532771
+    },
+    {
+     "key": "2027-03-26",
+     "trades": 48,
+     "premiumUsd": 1567021
+    },
+    {
+     "key": "2026-11-27",
+     "trades": 44,
+     "premiumUsd": 954518
+    },
+    {
+     "key": "2027-01-29",
+     "trades": 12,
+     "premiumUsd": 381208
+    },
+    {
+     "key": "2027-06-25",
+     "trades": 5,
+     "premiumUsd": 304721
+    }
+   ]
+  },
+  "SOL": {
+   "strikes": [
+    {
+     "key": "90C",
+     "trades": 5,
+     "premiumUsd": 51777
+    },
+    {
+     "key": "88P",
+     "trades": 5,
+     "premiumUsd": 16125
+    },
+    {
+     "key": "20C",
+     "trades": 1,
+     "premiumUsd": 15825
+    },
+    {
+     "key": "120P",
+     "trades": 2,
+     "premiumUsd": 13680
+    },
+    {
+     "key": "60C",
+     "trades": 1,
+     "premiumUsd": 7499
+    }
+   ],
+   "expiries": [
+    {
+     "key": "2026-11-27",
+     "trades": 8,
+     "premiumUsd": 63490
+    },
+    {
+     "key": "2026-12-25",
+     "trades": 7,
+     "premiumUsd": 35968
+    },
+    {
+     "key": "2027-03-26",
+     "trades": 11,
+     "premiumUsd": 32700
+    },
+    {
+     "key": "2026-11-13",
+     "trades": 3,
+     "premiumUsd": 11175
+    },
+    {
+     "key": "2026-11-11",
+     "trades": 1,
+     "premiumUsd": 192
+    }
+   ]
+  }
+ },
+ "blocks": {
+  "trades": 284,
+  "premiumUsd": 21024524,
+  "premiumSharePct": 29
+ },
+ "repeatWallets": [
+  {
+   "wallet": "0x40…5Bca",
+   "trades": 168,
+   "premiumUsd": 14666932
+  },
+  {
+   "wallet": "0xB2…23C6",
+   "trades": 135,
+   "premiumUsd": 14655987
+  },
+  {
+   "wallet": "0x57…f4C4",
+   "trades": 164,
+   "premiumUsd": 10915212
+  },
+  {
+   "wallet": "0xf5…cfE9",
+   "trades": 49,
+   "premiumUsd": 5056967
+  },
+  {
+   "wallet": "0x77…7467",
+   "trades": 31,
+   "premiumUsd": 881502
+  },
+  {
+   "wallet": "0x30…caA2",
+   "trades": 4,
+   "premiumUsd": 262666
+  },
+  {
+   "wallet": "0x5B…0DC0",
+   "trades": 4,
+   "premiumUsd": 169300
+  },
+  {
+   "wallet": "0x6C…0Efc",
+   "trades": 3,
+   "premiumUsd": 161622
+  },
+  {
+   "wallet": "0x96…142d",
+   "trades": 19,
+   "premiumUsd": 79085
+  },
+  {
+   "wallet": "0xE3…98D1",
+   "trades": 4,
+   "premiumUsd": 49277
+  },
+  {
+   "wallet": "0xa0…E05c",
+   "trades": 20,
+   "premiumUsd": 42508
+  },
+  {
+   "wallet": "0x9f…0AA3",
+   "trades": 6,
+   "premiumUsd": 39293
+  },
+  {
+   "wallet": "0x6A…8b70",
+   "trades": 30,
+   "premiumUsd": 21391
+  },
+  {
+   "wallet": "0x65…659d",
+   "trades": 3,
+   "premiumUsd": 7870
+  },
+  {
+   "wallet": "0xB8…0700",
+   "trades": 17,
+   "premiumUsd": 4475
+  }
+ ],
+ "disclaimer": "Market data and education only, not financial advice."
+}
