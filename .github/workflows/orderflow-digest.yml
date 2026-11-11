@@ -20,7 +20,8 @@ jobs:
           node-version: 22
       # Telegram posting stays off unless the two secrets exist AND the repository variable
       # ORDERFLOW_TG_ENABLED is "true" (Settings -> Secrets and variables -> Actions -> Variables).
-      - run: node scripts/weekly-digest.mjs ${{ inputs.week }}
+      - id: digest
+        run: node scripts/weekly-digest.mjs ${{ inputs.week }}
         env:
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
@@ -30,7 +31,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add data/orderflow/digest
           if git diff --cached --quiet; then echo "no change"; exit 0; fi
-          git commit -m "orderflow digest $(ls data/orderflow/digest/*.md | sed 's#.*/##; s#\.md##' | sort | tail -1)"
+          git commit -m "orderflow digest ${{ steps.digest.outputs.week }}"
           for i in 1 2 3 4 5; do
             git pull --rebase origin main && git push && exit 0
             sleep $((i * 10))

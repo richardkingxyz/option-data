@@ -16,6 +16,7 @@ const OVERLAP_MS = 15 * 60e3;         // re-read this much before the cursor; id
 const PAGE_DELAY_MS = 250;
 const MAX_PAGES = 80;                 // 80 x 1000 trades per source per run is far above any real window
 const LATEST_N = 300;
+const STALE_CURSOR_MS = 2 * 36e5;    // rewrite the cursor file at least this often even with nothing new
 const DERIBIT = 'https://www.deribit.com/api/v2/public/';
 const DERIVE = 'https://api.derive.xyz/v3/public/';
 
@@ -73,6 +74,7 @@ async function fetchDerive(currency, from, to) {
 
 const cfg = { ...DEFAULT_CONFIG, ...readJson('config.json', {}) };
 const state = readJson('state.json', { cursors: {} });
+const prevCursors = { ...state.cursors };
 const now = Date.now();
 const kept = [];            // this run's kept records
 const seenRaw = [];         // per-source counts for the log
@@ -123,7 +125,10 @@ if (added || !existsSync(DIR + 'latest.json')) {
   pool.sort((a, b) => b.ts - a.ts || a.id.localeCompare(b.id));
   writeJson('latest.json', { updated: now, config: cfg, trades: pool.slice(0, LATEST_N) });
 }
-if (anyOk) { state.updated = new Date(now).toISOString(); writeJson('state.json', state); }
+// The cursor file is only rewritten when something was added or it is getting stale, so a
+// quiet quarter-hour makes no commit; the overlap re-read covers the gap either way.
+const oldest = Math.min(...SOURCES.map(s => prevCursors[s.key] || 0));
+if (anyOk && (added || now - oldest > STALE_CURSOR_MS)) { state.updated = new Date(now).toISOString(); writeJson('state.json', state); }
 
 console.log(`orderflow ${new Date(now).toISOString()}: +${added} trades (${seenRaw.join('; ')})${touched.size ? ' -> ' + [...touched].join(', ') : ''}`);
 console.log(`ADDED=${added}`);

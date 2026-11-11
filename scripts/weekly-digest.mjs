@@ -5,7 +5,7 @@
 // Telegram posting is OFF unless all three are set: env TG_BOT_TOKEN, TG_CHAT_ID (GitHub secrets)
 // and ORDERFLOW_TG_ENABLED=true (GitHub repository variable). Nothing in here needs a key otherwise.
 // Run by hand: node scripts/weekly-digest.mjs [2026-W45]
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, appendFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { previousWeek, weekRange, shortWallet, fmtUsd, fmtSize, DISCLAIMER, UNDERLYINGS, VENUES } from './orderflow-lib.mjs';
 
@@ -58,8 +58,11 @@ const wallets = [...bucket(trades.filter(t => t.venue === 'derive' && t.wallet),
   .map(([w, xs]) => ({ wallet: shortWallet(w), trades: xs.length, premiumUsd: r0(sum(xs, t => t.premiumUsd)) }))
   .sort((a, b) => b.premiumUsd - a.premiumUsd);
 
-const digest = { week, start: day(range.start), end: day(range.end - 1), generated: new Date().toISOString(), totals, top10, buckets, active, blocks: blockStats, repeatWallets: wallets, disclaimer: DISCLAIMER };
-writeFileSync(OUT + `${week}.json`, JSON.stringify(digest, null, 1) + '\n');
+const digest = { week, start: day(range.start), end: day(range.end - 1), totals, top10, buckets, active, blocks: blockStats, repeatWallets: wallets, disclaimer: DISCLAIMER };
+// Rewritten only when the numbers changed, so a re-run on the same data makes no commit.
+const prev = existsSync(OUT + `${week}.json`) ? JSON.parse(readFileSync(OUT + `${week}.json`, 'utf8')) : null;
+const same = prev && JSON.stringify({ ...prev, generated: undefined }) === JSON.stringify({ ...digest, generated: undefined });
+if (!same) writeFileSync(OUT + `${week}.json`, JSON.stringify({ ...digest, generated: new Date().toISOString() }, null, 1) + '\n');
 
 // Plain text for Telegram (no parse_mode, so underscores and dashes in instrument names are safe).
 function render(limits) {
@@ -99,10 +102,12 @@ while (text.length > TG_LIMIT && (limits.top > 3 || limits.active > 2 || limits.
   text = render(limits);
 }
 if (text.length > TG_LIMIT) text = text.slice(0, TG_LIMIT - DISCLAIMER.length - 2).replace(/\n[^\n]*$/, '') + '\n\n' + DISCLAIMER;
-writeFileSync(OUT + `${week}.md`, text + '\n');
+if (!existsSync(OUT + `${week}.md`) || readFileSync(OUT + `${week}.md`, 'utf8') !== text + '\n') writeFileSync(OUT + `${week}.md`, text + '\n');
 
 const weeks = readdirSync(OUT).filter(f => /^\d{4}-W\d{2}\.json$/.test(f)).map(f => f.slice(0, -5)).sort().reverse();
-writeFileSync(OUT + 'index.json', JSON.stringify({ weeks, latest: weeks[0] || null }) + '\n');
+const index = JSON.stringify({ weeks, latest: weeks[0] || null }) + '\n';
+if (!existsSync(OUT + 'index.json') || readFileSync(OUT + 'index.json', 'utf8') !== index) writeFileSync(OUT + 'index.json', index);
+if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `week=${week}\n`);
 console.log(`digest ${week}: ${totals.trades} trades, ${fmtUsd(totals.premiumUsd)} premium, text ${text.length} chars -> digest/${week}.json + .md`);
 
 // Telegram, off unless explicitly enabled.
