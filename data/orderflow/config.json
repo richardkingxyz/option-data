@@ -1,0 +1,8 @@
+{
+  "_doc": "Thresholds for what the order flow feed keeps. Edit here, no code change needed. A trade is kept if it is a block trade (alwaysInclude.block), or an RFQ when alwaysInclude.rfq is true, or its notional (size x index, USD) or its premium (USD) reaches the number for its coin. The derive block overrides those numbers for Derive trades only (a single number applies to every coin; an object like minNotionalUsd above applies per coin). excludeLiquidations drops Deribit liquidation trades even when large. The collector reads this file every 15 minutes and the flow page reads it on load.",
+  "alwaysInclude": { "block": true, "rfq": false },
+  "minNotionalUsd": { "BTC": 2500000, "ETH": 1000000, "SOL": 50000 },
+  "minPremiumUsd": { "BTC": 50000, "ETH": 25000, "SOL": 2500 },
+  "derive": { "minNotionalUsd": 250000 },
+  "excludeLiquidations": true
+}
